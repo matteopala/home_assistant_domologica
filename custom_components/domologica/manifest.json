@@ -1,0 +1,9 @@
+{
+  "domain": "domologica",
+  "name": "Domologica",
+  "documentation": "https://github.com/matteopala/homeassistant_domologica",
+  "dependencies": [],
+  "codeowners": ["@matteopala"],
+  "requirements": ["aiohttp", "lxml"],
+  "version": "1.0.0"
+}
