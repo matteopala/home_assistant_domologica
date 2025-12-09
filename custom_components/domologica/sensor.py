@@ -7,7 +7,7 @@ import aiohttp
 import asyncio
 
 _LOGGER = logging.getLogger(__name__)
-SCAN_INTERVAL = timedelta(seconds=5)
+SCAN_INTERVAL = timedelta(seconds=20)
 DOMAIN = "domologica"
 
 async def async_setup_entry(hass, entry, async_add_entities):
