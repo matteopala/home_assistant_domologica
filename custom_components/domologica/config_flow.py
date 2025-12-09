@@ -1,9 +1,6 @@
+import aiohttp
 import voluptuous as vol
-import requests
-from requests.auth import HTTPBasicAuth
 from homeassistant import config_entries
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.typing import ConfigType
 
 DOMAIN = "domologica"
 
@@ -14,24 +11,30 @@ DATA_SCHEMA = vol.Schema({
 })
 
 class DomologicaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Domologica."""
+    """Gestione del config flow per Domologica."""
 
     VERSION = 1
 
     async def async_step_user(self, user_input=None):
+        """Step iniziale dell’utente."""
         errors = {}
+
         if user_input is not None:
-            # Prova a connettersi all'URL con le credenziali inserite
+            # Test connessione async con aiohttp
             try:
-                response = requests.get(
-                    user_input["domologica_url"],
-                    auth=HTTPBasicAuth(user_input["username"], user_input["password"]),
-                    timeout=10
-                )
-                response.raise_for_status()
-            except requests.exceptions.RequestException:
+                auth = aiohttp.BasicAuth(user_input["username"], user_input["password"])
+                async with aiohttp.ClientSession(auth=auth) as session:
+                    async with session.get(user_input["domologica_url"], timeout=10) as resp:
+                        if resp.status != 200:
+                            errors["base"] = "cannot_connect"
+            except Exception:
                 errors["base"] = "cannot_connect"
-            else:
+
+            if not errors:
                 return self.async_create_entry(title="Domologica", data=user_input)
 
-        return self.async_show_form(step_id="user", data_schema=DATA_SCHEMA, errors=errors)
+        return self.async_show_form(
+            step_id="user",
+            data_schema=DATA_SCHEMA,
+            errors=errors
+        )
