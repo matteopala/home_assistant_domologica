@@ -7,11 +7,12 @@ import aiohttp
 import asyncio
 
 _LOGGER = logging.getLogger(__name__)
-SCAN_INTERVAL = timedelta(seconds=20)
+SCAN_INTERVAL = timedelta(seconds=5)
 DOMAIN = "domologica"
 
+
 async def async_setup_entry(hass, entry, async_add_entities):
-    """Set up Domologica sensors from a config entry."""
+    """Setup dei sensori Domologica da config entry."""
     url = entry.data["domologica_url"]
     username = entry.data["username"]
     password = entry.data["password"]
@@ -26,7 +27,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
     async_add_entities(entities, True)
 
-    # Aggiornamento periodico
     async def update_loop(now):
         await manager.update_devices()
         for entity in entities:
@@ -56,7 +56,6 @@ class DomologicaManager:
             try:
                 xml_text = await self.fetch_xml()
                 tree = etree.fromstring(xml_text.encode())
-                # Sensori generici
                 for sensor in tree.xpath("//devices/sensors/*"):
                     name = f"{sensor.tag}"
                     xpath = f"//devices/sensors/{sensor.tag}"

@@ -7,8 +7,9 @@ import asyncio
 from lxml import etree
 
 _LOGGER = logging.getLogger(__name__)
-SCAN_INTERVAL = timedelta(seconds=20)
+SCAN_INTERVAL = timedelta(seconds=5)
 DOMAIN = "domologica"
+
 
 async def async_setup_entry(hass, entry, async_add_entities):
     """Setup tapparelle Domologica da config entry."""
@@ -26,7 +27,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
     async_add_entities(entities, True)
 
-    # Aggiornamento periodico
     async def update_loop(now):
         await manager.update_devices()
         for entity in entities:
@@ -36,13 +36,13 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
 
 class DomologicaManager:
-    """Gestisce XML e cache dei dispositivi."""
+    """Gestisce XML e cache tapparelle."""
 
     def __init__(self, url, username, password):
         self._url = url
         self._auth = aiohttp.BasicAuth(username, password)
-        self.devices = {}  # {nome: {"xpath": xpath, "type": categoria}}
-        self.cache = {}    # {xpath: stato}
+        self.devices = {}
+        self.cache = {}
         self.lock = asyncio.Lock()
 
     async def fetch_xml(self):
@@ -56,7 +56,6 @@ class DomologicaManager:
             try:
                 xml_text = await self.fetch_xml()
                 tree = etree.fromstring(xml_text.encode())
-                # Tapparelle
                 for shutter in tree.xpath("//devices/shutters/shutters/*"):
                     name = f"{shutter.tag}"
                     xpath = f"//devices/shutters/shutters/{shutter.tag}"
@@ -70,12 +69,11 @@ class DomologicaManager:
 class DomologicaShutter(CoverEntity):
     """Tapparella Domologica."""
 
-    def __init__(self, manager, name, xpath, command_base_url=None):
+    def __init__(self, manager, name, xpath):
         self._manager = manager
         self._name = name
         self._xpath = xpath
         self._position = 0  # 0 = chiusa, 100 = aperta
-        self._command_base_url = command_base_url
 
     @property
     def name(self):
@@ -89,27 +87,10 @@ class DomologicaShutter(CoverEntity):
     def is_closed(self):
         return self._position == 0
 
-    async def _send_command(self, action: str):
-        """Invia comando alla centralina Domologica."""
-        if not self._command_base_url:
-            return
-        url = f"{self._command_base_url}?action={action}"
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url) as resp:
-                    if resp.status == 200:
-                        _LOGGER.debug(f"{self._name}: comando '{action}' inviato con successo")
-                    else:
-                        _LOGGER.error(f"{self._name}: errore comando '{action}', status {resp.status}")
-        except Exception as e:
-            _LOGGER.error(f"{self._name}: eccezione comando '{action}': {e}")
-
     async def async_open_cover(self, **kwargs):
-        await self._send_command("turnup")
         self._position = 100
 
     async def async_close_cover(self, **kwargs):
-        await self._send_command("turndown")
         self._position = 0
 
     async def async_update(self):

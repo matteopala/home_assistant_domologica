@@ -1,17 +1,18 @@
 import aiohttp
-from lxml import etree
 import logging
 from homeassistant.components.light import LightEntity
 from datetime import timedelta
 from homeassistant.helpers.event import async_track_time_interval
 import asyncio
+from lxml import etree
 
 _LOGGER = logging.getLogger(__name__)
-SCAN_INTERVAL = timedelta(seconds=20)
+SCAN_INTERVAL = timedelta(seconds=5)
 DOMAIN = "domologica"
 
+
 async def async_setup_entry(hass, entry, async_add_entities):
-    """Setup delle luci Domologica da config entry."""
+    """Setup luci Domologica da config entry."""
     url = entry.data["domologica_url"]
     username = entry.data["username"]
     password = entry.data["password"]
@@ -26,7 +27,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
     async_add_entities(entities, True)
 
-    # Aggiornamento periodico
     async def update_loop(now):
         await manager.update_devices()
         for entity in entities:
@@ -36,13 +36,13 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
 
 class DomologicaManager:
-    """Gestisce XML e cache dei dispositivi."""
+    """Gestisce XML e cache luci."""
 
     def __init__(self, url, username, password):
         self._url = url
         self._auth = aiohttp.BasicAuth(username, password)
-        self.devices = {}  # {nome: {"xpath": xpath, "type": categoria}}
-        self.cache = {}    # {xpath: stato}
+        self.devices = {}
+        self.cache = {}
         self.lock = asyncio.Lock()
 
     async def fetch_xml(self):
@@ -56,7 +56,6 @@ class DomologicaManager:
             try:
                 xml_text = await self.fetch_xml()
                 tree = etree.fromstring(xml_text.encode())
-                # Luci
                 for light in tree.xpath("//devices/lights/lights/*"):
                     name = f"{light.tag}"
                     xpath = f"//devices/lights/lights/{light.tag}"
@@ -85,11 +84,9 @@ class DomologicaLight(LightEntity):
         return self._is_on
 
     async def async_turn_on(self, **kwargs):
-        """Accendi la luce (implementare comando reale se disponibile)."""
         self._is_on = True
 
     async def async_turn_off(self, **kwargs):
-        """Spegni la luce (implementare comando reale se disponibile)."""
         self._is_on = False
 
     async def async_update(self):
