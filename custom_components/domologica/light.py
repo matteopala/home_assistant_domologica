@@ -1,18 +1,22 @@
 import aiohttp
 from lxml import etree
 import logging
-from homeassistant.helpers.entity import Entity
+from homeassistant.components.light import LightEntity
 from datetime import timedelta
 from homeassistant.helpers.event import async_track_time_interval
 import asyncio
 
 _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(seconds=5)
+DOMAIN = "domologica"
 
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
-    """Setup delle luci Domologica."""
-    url = hass.data["domologica_url"]
-    manager = DomologicaManager(url)
+async def async_setup_entry(hass, entry, async_add_entities):
+    """Setup delle luci Domologica da config entry."""
+    url = entry.data["domologica_url"]
+    username = entry.data["username"]
+    password = entry.data["password"]
+
+    manager = DomologicaManager(url, username, password)
     await manager.update_devices()
 
     entities = [
@@ -21,21 +25,30 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     ]
 
     async_add_entities(entities, True)
-    async_track_time_interval(hass, lambda now: manager.update_devices(), SCAN_INTERVAL)
+
+    # Aggiornamento periodico
+    async def update_loop(now):
+        await manager.update_devices()
+        for entity in entities:
+            await entity.async_update_ha_state()
+
+    async_track_time_interval(hass, update_loop, SCAN_INTERVAL)
 
 
 class DomologicaManager:
     """Gestisce XML e cache dei dispositivi."""
 
-    def __init__(self, url):
+    def __init__(self, url, username, password):
         self._url = url
+        self._auth = aiohttp.BasicAuth(username, password)
         self.devices = {}  # {nome: {"xpath": xpath, "type": categoria}}
         self.cache = {}    # {xpath: stato}
         self.lock = asyncio.Lock()
 
     async def fetch_xml(self):
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(auth=self._auth) as session:
             async with session.get(self._url) as resp:
+                resp.raise_for_status()
                 return await resp.text()
 
     async def update_devices(self):
@@ -54,7 +67,7 @@ class DomologicaManager:
                 _LOGGER.error(f"Errore aggiornamento luci Domologica: {e}")
 
 
-class DomologicaLight(Entity):
+class DomologicaLight(LightEntity):
     """Luce Domologica."""
 
     def __init__(self, manager, name, xpath):
@@ -72,11 +85,11 @@ class DomologicaLight(Entity):
         return self._is_on
 
     async def async_turn_on(self, **kwargs):
-        """Accendi la luce (da implementare comando reale se disponibile)."""
+        """Accendi la luce (implementare comando reale se disponibile)."""
         self._is_on = True
 
     async def async_turn_off(self, **kwargs):
-        """Spegni la luce (da implementare comando reale se disponibile)."""
+        """Spegni la luce (implementare comando reale se disponibile)."""
         self._is_on = False
 
     async def async_update(self):
