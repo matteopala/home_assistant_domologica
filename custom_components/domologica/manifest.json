@@ -1,7 +1,7 @@
 {
   "domain": "domologica",
   "name": "Domologica",
-  "version": "0.1.5",
+  "version": "0.1.7",
   "documentation": "https://github.com/matteopala/home_assistant_domologica",
   "issue_tracker": "https://github.com/matteopala/home_assistant_domologica/issues",
   "requirements": [],
