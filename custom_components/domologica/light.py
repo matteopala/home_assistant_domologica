@@ -1,52 +1,44 @@
-import logging
-
 from homeassistant.components.light import LightEntity
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.config_entries import ConfigEntry
+from .const import DOMAIN
 
-from .coordinator import DomologicaCoordinator
+async def async_setup_entry(hass, entry, async_add_entities):
+    coordinator = hass.data[DOMAIN][entry.entry_id]
 
-_LOGGER = logging.getLogger(__name__)
-
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
-    """Set up Domologica lights."""
-    coordinator: DomologicaCoordinator = hass.data["domologica"][entry.entry_id]
-    
     lights = []
-    for path, statuses in coordinator.data.items():
-        if "isswitchedon" in statuses or "isswitchedoff" in statuses:
-            lights.append(DomologicaLight(coordinator, path))
+    for elem_id, status in coordinator.data.items():
+        # consideriamo come luce se contiene "isswitchedon" o "isswitchedoff"
+        if "isswitchedon" in status or "isswitchedoff" in status:
+            lights.append(DomologicaLight(coordinator, elem_id))
 
     async_add_entities(lights)
 
 class DomologicaLight(LightEntity):
-    """Representation of a Domologica light."""
+    """Rappresenta una luce Domologica."""
 
-    def __init__(self, coordinator: DomologicaCoordinator, element_path: str):
+    def __init__(self, coordinator, element_id):
         self.coordinator = coordinator
-        self._element_path = element_path
-        self._attr_name = f"Light {element_path}"
-        self._attr_unique_id = f"domologica_light_{element_path}"
-        self._is_on = False
+        self.element_id = element_id
+
+    @property
+    def name(self):
+        return f"Domologica Light {self.element_id}"
 
     @property
     def is_on(self):
-        return self._is_on
-
-    async def async_update(self):
-        """Update light status from coordinator data."""
-        await self.coordinator.async_request_refresh()
-        statuses = self.coordinator.data.get(self._element_path, {})
-        if "isswitchedon" in statuses:
-            self._is_on = True
-        elif "isswitchedoff" in statuses:
-            self._is_on = False
+        status = self.coordinator.data.get(self.element_id, {})
+        if "isswitchedon" in status:
+            return True
+        if "isswitchedoff" in status:
+            return False
+        return False
 
     async def async_turn_on(self, **kwargs):
-        """Domologica lights are read-only in this example."""
-        _LOGGER.debug("Turn on command ignored (read-only)")
+        # qui potresti inserire comando remoto verso Domologica
+        self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs):
-        """Domologica lights are read-only in this example."""
-        _LOGGER.debug("Turn off command ignored (read-only)")
+        # qui potresti inserire comando remoto verso Domologica
+        self.async_write_ha_state()
+
+    async def async_update(self):
+        await self.coordinator.async_request_refresh()

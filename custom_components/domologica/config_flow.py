@@ -1,40 +1,53 @@
 import voluptuous as vol
-import logging
-
 from homeassistant import config_entries
-from homeassistant.core import callback
-from homeassistant.const import CONF_NAME, CONF_PATH
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+import aiohttp
+import xml.etree.ElementTree as ET
+from .const import DOMAIN, CONF_URL, CONF_USERNAME, CONF_PASSWORD
 
-DOMAIN = "domologica"
-_LOGGER = logging.getLogger(__name__)
-
-class DomologicaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Domologica."""
+class DomologicaFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
+    """Gestione config flow per Domologica."""
 
     VERSION = 1
 
     async def async_step_user(self, user_input=None):
-        """Handle the initial step."""
+        """Step iniziale per configurazione tramite interfaccia web."""
         errors = {}
 
         if user_input is not None:
-            xml_path = user_input.get(CONF_PATH)
-            if not xml_path:
-                errors["base"] = "invalid_path"
+            url = user_input[CONF_URL]
+            username = user_input[CONF_USERNAME]
+            password = user_input[CONF_PASSWORD]
+
+            # prova a leggere l'XML remoto
+            try:
+                session = async_get_clientsession(self.hass)
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, auth=aiohttp.BasicAuth(username, password)) as resp:
+                        resp.raise_for_status()
+                        xml_text = await resp.text()
+                        ET.fromstring(xml_text)  # controllo valido XML
+            except aiohttp.ClientResponseError as err:
+                errors["base"] = "invalid_auth" if err.status == 401 else "cannot_connect"
+            except Exception:
+                errors["base"] = "cannot_connect"
             else:
-                # Aggiunge la configurazione
+                # crea la configurazione
                 return self.async_create_entry(
-                    title=user_input.get(CONF_NAME, "Domologica"),
-                    data=user_input
+                    title="Domologica",
+                    data={
+                        CONF_URL: url,
+                        CONF_USERNAME: username,
+                        CONF_PASSWORD: password,
+                    }
                 )
 
-        # Mostra il form all'utente
+        # form per inserimento credenziali
         data_schema = vol.Schema({
-            vol.Required(CONF_NAME, default="Domologica"): str,
-            vol.Required(CONF_PATH, default="/config/domologica_data.xml"): str
+            vol.Required(CONF_URL): str,
+            vol.Required(CONF_USERNAME): str,
+            vol.Required(CONF_PASSWORD): str,
         })
-        return self.async_show_form(
-            step_id="user",
-            data_schema=data_schema,
-            errors=errors
-        )
+
+        return self.async_show_form(step_id="user", data_schema=data_schema, errors=errors)

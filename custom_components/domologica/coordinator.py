@@ -1,56 +1,51 @@
-import logging
-from datetime import timedelta
-import xml.etree.ElementTree as ET
-
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.core import HomeAssistant
+from datetime import timedelta
+import aiohttp
+import xml.etree.ElementTree as ET
+from .const import DOMAIN, CONF_URL, CONF_USERNAME, CONF_PASSWORD, _LOGGER
 
-_LOGGER = logging.getLogger(__name__)
+class DomologicaDataUpdateCoordinator(DataUpdateCoordinator):
+    """Gestione aggiornamento dati Domologica."""
 
-UPDATE_INTERVAL = timedelta(seconds=20)  # aggiornamento ogni 20 secondi
-
-class DomologicaCoordinator(DataUpdateCoordinator):
-    """Coordinator for Domologica integration."""
-
-    def __init__(self, hass: HomeAssistant, xml_file_path: str):
-        """Initialize the coordinator."""
+    def __init__(self, hass: HomeAssistant, entry):
         self.hass = hass
-        self.xml_file_path = xml_file_path
+        self.entry = entry
+        self.url = entry.data[CONF_URL]
+        self.username = entry.data[CONF_USERNAME]
+        self.password = entry.data[CONF_PASSWORD]
+
         super().__init__(
             hass,
             _LOGGER,
-            name="Domologica",
-            update_interval=UPDATE_INTERVAL
+            name=DOMAIN,
+            update_interval=timedelta(seconds=30),
         )
 
     async def _async_update_data(self):
-        """Fetch data from XML file."""
+        """Scarica dati XML remoto e ritorna come dict."""
         try:
-            return await self.hass.async_add_executor_job(self._parse_xml)
-        except Exception as err:
-            raise UpdateFailed(f"Error fetching Domologica data: {err}") from err
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    self.url, auth=aiohttp.BasicAuth(self.username, self.password)
+                ) as resp:
+                    resp.raise_for_status()
+                    xml_text = await resp.text()
+                    root = ET.fromstring(xml_text)
 
-    def _parse_xml(self):
-        """Parse the XML file and return a dict with element statuses."""
-        data = {}
-        try:
-            tree = ET.parse(self.xml_file_path)
-            root = tree.getroot()
-            for element in root.findall("ElementStatus"):
-                path = element.findtext("ElementPath")
-                statuses = {}
-                for status in element.findall("Status"):
-                    status_id = status.attrib.get("id")
-                    value_elem = status.find("value")
-                    if value_elem is not None:
-                        try:
-                            value = float(value_elem.text)
-                        except (TypeError, ValueError):
-                            value = value_elem.text
-                    else:
-                        value = status_id  # se non ha <value>, prendiamo l'id
-                    statuses[status_id] = value
-                data[path] = statuses
-        except Exception as e:
-            _LOGGER.error("Error parsing XML: %s", e)
-        return data
+                    data = {}
+                    for elem_status in root.findall("ElementStatus"):
+                        element_id = elem_status.find("ElementPath").text
+                        status_dict = {}
+                        for status in elem_status.findall("Status"):
+                            status_id = status.attrib.get("id")
+                            value_elem = status.find("value")
+                            if value_elem is not None:
+                                status_dict[status_id] = value_elem.text
+                            else:
+                                # status senza valore
+                                status_dict[status_id] = None
+                        data[element_id] = status_dict
+                    return data
+        except Exception as err:
+            raise UpdateFailed(f"Errore aggiornamento dati Domologica: {err}") from err
