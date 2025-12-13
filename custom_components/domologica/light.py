@@ -1,95 +1,36 @@
-import aiohttp
-import logging
 from homeassistant.components.light import LightEntity
-from datetime import timedelta
-from homeassistant.helpers.event import async_track_time_interval
-import asyncio
-from lxml import etree
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-_LOGGER = logging.getLogger(__name__)
-SCAN_INTERVAL = timedelta(seconds=5)
-DOMAIN = "domologica"
+from .coordinator import DomologicaCoordinator
+from .const import DOMAIN
 
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
+session = async_get_clientsession(hass)
+coordinator = DomologicaCoordinator(hass, session, entry.data)
+await coordinator.async_config_entry_first_refresh()
 
-async def async_setup_entry(hass, entry, async_add_entities):
-    """Setup luci Domologica da config entry."""
-    url = entry.data["domologica_url"]
-    username = entry.data["username"]
-    password = entry.data["password"]
+lights = []
+for element_id, info in coordinator.data.items():
+if info.get("on") is not None:
+lights.append(DomologicaLight(coordinator, element_id))
 
-    manager = DomologicaManager(url, username, password)
-    await manager.update_devices()
+async_add_entities(lights)
 
-    entities = [
-        DomologicaLight(manager, name, info["xpath"])
-        for name, info in manager.devices.items() if info["type"] == "light"
-    ]
+class DomologicaLight(CoordinatorEntity, LightEntity):
+def __init__(self, coordinator, element_id):
+super().__init__(coordinator)
+self._element_id = element_id
+self._attr_unique_id = f"domologica_light_{element_id}"
+self._attr_name = f"Domologica {element_id}"
 
-    async_add_entities(entities, True)
+@property
+def is_on(self):
+return self.coordinator.data[self._element_id]["on"]
 
-    async def update_loop(now):
-        await manager.update_devices()
-        for entity in entities:
-            await entity.async_update_ha_state()
-
-    async_track_time_interval(hass, update_loop, SCAN_INTERVAL)
-
-
-class DomologicaManager:
-    """Gestisce XML e cache luci."""
-
-    def __init__(self, url, username, password):
-        self._url = url
-        self._auth = aiohttp.BasicAuth(username, password)
-        self.devices = {}
-        self.cache = {}
-        self.lock = asyncio.Lock()
-
-    async def fetch_xml(self):
-        async with aiohttp.ClientSession(auth=self._auth) as session:
-            async with session.get(self._url) as resp:
-                resp.raise_for_status()
-                return await resp.text()
-
-    async def update_devices(self):
-        async with self.lock:
-            try:
-                xml_text = await self.fetch_xml()
-                tree = etree.fromstring(xml_text.encode())
-                for light in tree.xpath("//devices/lights/lights/*"):
-                    name = f"{light.tag}"
-                    xpath = f"//devices/lights/lights/{light.tag}"
-                    self.devices[f"light_{name}"] = {"xpath": xpath, "type": "light"}
-                    value = tree.xpath(xpath + "/text()")
-                    self.cache[xpath] = value[0] if value else None
-            except Exception as e:
-                _LOGGER.error(f"Errore aggiornamento luci Domologica: {e}")
-
-
-class DomologicaLight(LightEntity):
-    """Luce Domologica."""
-
-    def __init__(self, manager, name, xpath):
-        self._manager = manager
-        self._name = name
-        self._xpath = xpath
-        self._is_on = False
-
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def is_on(self):
-        return self._is_on
-
-    async def async_turn_on(self, **kwargs):
-        self._is_on = True
-
-    async def async_turn_off(self, **kwargs):
-        self._is_on = False
-
-    async def async_update(self):
-        async with self._manager.lock:
-            value = self._manager.cache.get(self._xpath)
-            self._is_on = value == "1"
+@property
+def available(self):
+return self.coordinator.data.get(self._element_id) is not None

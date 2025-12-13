@@ -1,8 +1,11 @@
 {
-  "domain": "domologica",
-  "name": "Domologica",
-  "version": "1.0.0",
-  "documentation": "https://github.com/matteopala/home_assistant_domologica",
-  "requirements": ["requests"],
-  "config_flow": true
+"domain": "domologica",
+"name": "Domologica",
+"version": "0.1.0",
+"documentation": "https://github.com/matteopala/home_assistant_domologica",
+"requirements": [],
+"dependencies": [],
+"codeowners": ["@matteopala"],
+"config_flow": true,
+"iot_class": "local_polling"
 }
