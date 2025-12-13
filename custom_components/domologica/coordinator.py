@@ -1,8 +1,8 @@
 import asyncio
-import aiohttp
+import aiohttp # pyright: ignore[reportMissingImports]
 import xml.etree.ElementTree as ET
 from datetime import timedelta
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator # pyright: ignore[reportMissingImports]
 
 class DomologicaDataUpdateCoordinator(DataUpdateCoordinator):
     """Coordinator to fetch data from Domologica XML."""
@@ -14,7 +14,7 @@ class DomologicaDataUpdateCoordinator(DataUpdateCoordinator):
 
         super().__init__(
             hass,
-            _LOGGER,
+            _LOGGER, # pyright: ignore[reportUndefinedVariable]
             name="Domologica Data Coordinator",
             update_interval=timedelta(seconds=update_interval),
         )

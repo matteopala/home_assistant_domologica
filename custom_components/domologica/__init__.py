@@ -1,6 +1,6 @@
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.config_entries import ConfigEntry # pyright: ignore[reportMissingImports]
+from homeassistant.core import HomeAssistant # pyright: ignore[reportMissingImports]
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator # pyright: ignore[reportMissingImports]
 from .coordinator import DomologicaDataUpdateCoordinator
 from .const import DOMAIN, PLATFORMS
 

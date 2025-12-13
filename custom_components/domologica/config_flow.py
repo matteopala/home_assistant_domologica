@@ -1,5 +1,5 @@
-import voluptuous as vol
-from homeassistant import config_entries
+import voluptuous as vol # pyright: ignore[reportMissingImports]
+from homeassistant import config_entries # pyright: ignore[reportMissingImports]
 from .const import DOMAIN
 
 class DomologicaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
