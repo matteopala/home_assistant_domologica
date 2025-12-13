@@ -4,6 +4,10 @@ import xml.etree.ElementTree as ET
 from datetime import timedelta
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator # pyright: ignore[reportMissingImports]
 
+import logging
+
+_LOGGER = logging.getLogger(__name__)
+
 class DomologicaDataUpdateCoordinator(DataUpdateCoordinator):
     """Coordinator to fetch data from Domologica XML."""
 
@@ -14,7 +18,7 @@ class DomologicaDataUpdateCoordinator(DataUpdateCoordinator):
 
         super().__init__(
             hass,
-            _LOGGER, # pyright: ignore[reportUndefinedVariable]
+            _LOGGER,
             name="Domologica Data Coordinator",
             update_interval=timedelta(seconds=update_interval),
         )
