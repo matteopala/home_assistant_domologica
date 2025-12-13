@@ -1,5 +1,8 @@
 import logging
-from homeassistant.components.light import LightEntity
+from homeassistant.components.light import (
+    LightEntity,
+    ColorMode,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
@@ -19,7 +22,6 @@ async def async_setup_entry(
     entities = []
 
     for element_path, statuses in coordinator.data.items():
-        # creiamo solo luci con stato on/off
         if "isswitchedon" in statuses or "isswitchedoff" in statuses:
             entities.append(
                 DomologicaLight(coordinator, element_path)
@@ -29,30 +31,51 @@ async def async_setup_entry(
 
 
 class DomologicaLight(LightEntity):
-    """Luce Domologica."""
+    """Luce Domologica (on/off o dimmer)."""
 
     def __init__(self, coordinator, element_path: str):
         self.coordinator = coordinator
         self.element_path = element_path
 
-        self._attr_name = f"Domologica Light {element_path}"
         self._attr_unique_id = f"domologica_light_{element_path}"
+
+        # nome dinamico
+        if self._has_dimmer:
+            self._attr_name = f"Domologica Dimmer {element_path}"
+            self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
+            self._attr_color_mode = ColorMode.BRIGHTNESS
+        else:
+            self._attr_name = f"Domologica Light {element_path}"
+            self._attr_supported_color_modes = {ColorMode.ONOFF}
+            self._attr_color_mode = ColorMode.ONOFF
+
+    @property
+    def _has_dimmer(self) -> bool:
+        data = self.coordinator.data.get(self.element_path, {})
+        return "Getdimmer" in data
 
     @property
     def is_on(self) -> bool | None:
-        """Ritorna True se la luce è accesa."""
         data = self.coordinator.data.get(self.element_path)
-
         if not data:
             return None
-
         return "isswitchedon" in data
 
     @property
+    def brightness(self) -> int | None:
+        """Brightness 0–255 se dimmer."""
+        if not self._has_dimmer:
+            return None
+
+        value = self.coordinator.data[self.element_path].get("Getdimmer")
+        if value is None:
+            return None
+
+        return int(value * 255 / 100)
+
+    @property
     def extra_state_attributes(self):
-        """Attributi extra dall'XML."""
         return self.coordinator.data.get(self.element_path, {})
 
     async def async_update(self):
-        """Aggiorna via coordinator."""
         await self.coordinator.async_request_refresh()
