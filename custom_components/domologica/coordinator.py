@@ -1,6 +1,5 @@
 import logging
 from datetime import timedelta
-import asyncio
 import xml.etree.ElementTree as ET
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -49,7 +48,7 @@ class DomologicaCoordinator(DataUpdateCoordinator):
                         except (TypeError, ValueError):
                             value = value_elem.text
                     else:
-                        value = None
+                        value = status_id  # se non ha <value>, prendiamo l'id
                     statuses[status_id] = value
                 data[path] = statuses
         except Exception as e:

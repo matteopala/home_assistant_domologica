@@ -1,39 +1,40 @@
-from homeassistant import config_entries
 import voluptuous as vol
+import logging
 
-from .const import (
-    DOMAIN,
-    CONF_URL,
-    CONF_USERNAME,
-    CONF_PASSWORD,
-    CONF_SCAN_INTERVAL,
-    DEFAULT_SCAN_INTERVAL,
-)
+from homeassistant import config_entries
+from homeassistant.core import callback
+from homeassistant.const import CONF_NAME, CONF_PATH
 
+DOMAIN = "domologica"
+_LOGGER = logging.getLogger(__name__)
 
 class DomologicaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Config flow for Domologica integration."""
+    """Handle a config flow for Domologica."""
 
     VERSION = 1
 
     async def async_step_user(self, user_input=None):
-        if user_input is not None:
-            return self.async_create_entry(
-                title="Domologica",
-                data=user_input,
-            )
+        """Handle the initial step."""
+        errors = {}
 
+        if user_input is not None:
+            xml_path = user_input.get(CONF_PATH)
+            if not xml_path:
+                errors["base"] = "invalid_path"
+            else:
+                # Aggiunge la configurazione
+                return self.async_create_entry(
+                    title=user_input.get(CONF_NAME, "Domologica"),
+                    data=user_input
+                )
+
+        # Mostra il form all'utente
+        data_schema = vol.Schema({
+            vol.Required(CONF_NAME, default="Domologica"): str,
+            vol.Required(CONF_PATH, default="/config/domologica_data.xml"): str
+        })
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_URL): str,
-                    vol.Required(CONF_USERNAME): str,
-                    vol.Required(CONF_PASSWORD): str,
-                    vol.Optional(
-                        CONF_SCAN_INTERVAL,
-                        default=DEFAULT_SCAN_INTERVAL,
-                    ): int,
-                }
-            ),
+            data_schema=data_schema,
+            errors=errors
         )
