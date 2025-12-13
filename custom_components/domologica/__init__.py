@@ -9,7 +9,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     url = entry.data["url"]
     username = entry.data["username"]
     password = entry.data["password"]
-    polling_interval = entry.options.get("polling_interval", 2)  # default 2 sec
+    polling_interval = entry.options.get("polling_interval", 10)  # default 2 sec
 
     coordinator = DomologicaDataUpdateCoordinator(
         hass, url=url, username=username, password=password, update_interval=polling_interval
