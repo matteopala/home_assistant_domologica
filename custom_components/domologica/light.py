@@ -1,109 +1,124 @@
-import logging
-import aiohttp
+from __future__ import annotations
 
-from homeassistant.components.light import (
-    LightEntity,
-    ColorMode,
-)
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.components.light import LightEntity, ColorMode
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.helpers.entity import DeviceInfo
 
 from .const import DOMAIN
-
-_LOGGER = logging.getLogger(__name__)
+from .utils import async_command, async_set_dimmer, element_by_id, has_status, read_value
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    """Setup luci Domologica."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
+    root = coordinator.data
 
     entities = []
+    for elem in root.findall("ElementStatus"):
+        eid = elem.findtext("ElementPath")
+        if not eid:
+            continue
 
-    for element_path, statuses in (coordinator.data or {}).items():
-        entities.append(
-            DomologicaLight(
-                coordinator=coordinator,
-                element_path=element_path,
-            )
-        )
+        # euristica: luce se ha isswitchedon/isswitchedoff o getdimmer
+        if has_status(elem, "isswitchedon") or has_status(elem, "isswitchedoff") or has_status(elem, "getdimmer"):
+            entities.append(DomologicaLight(coordinator, entry, str(eid)))
 
     async_add_entities(entities)
 
 
 class DomologicaLight(CoordinatorEntity, LightEntity):
-    """Entità Light Domologica."""
+    _attr_color_mode = ColorMode.BRIGHTNESS
+    _attr_supported_color_modes = {ColorMode.BRIGHTNESS}
 
-    def __init__(self, coordinator, element_path):
+    def __init__(self, coordinator, entry, element_id: str, element_name: str | None = None):
         super().__init__(coordinator)
+        self.entry = entry
+        self._element_id = element_id
+        self._element_name = element_nameCoordinatorEntity, LightEntity):
+    _attr_color_mode = ColorMode.BRIGHTNESS
+    _attr_supported_color_modes = {ColorMode.BRIGHTNESS}
 
-        self.element_path = element_path
-
-        self._attr_unique_id = f"domologica_light_{element_path}"
-        self._attr_name = f"Domologica Light {element_path}"
-
-        # Capabilities
-        statuses = self.coordinator.data.get(element_path, {}) if self.coordinator.data else {}
-        if "getdimmer" in statuses:
-            self._attr_color_mode = ColorMode.BRIGHTNESS
-            self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
-        else:
-            self._attr_color_mode = ColorMode.ONOFF
-            self._attr_supported_color_modes = {ColorMode.ONOFF}
+    def __init__(self, coordinator, entry, element_id: str):
+        super().__init__(coordinator)
+        self.entry = entry
+        self._element_id = element_id
 
     @property
-    def is_on(self):
-        statuses = self.coordinator.data.get(self.element_path, {}) if self.coordinator.data else {}
-        return "isswitchedon" in statuses
+    def unique_id(self) -> str:
+        return f"{self.entry.entry_id}_light_{self._element_id}"
 
     @property
-    def brightness(self):
-        statuses = self.coordinator.data.get(self.element_path, {}) if self.coordinator.data else {}
-        dimmer = statuses.get("getdimmer")
-        if dimmer is None:
+    def name(self) -> str:
+        return normalize_entity_name(self._element_id, self._element_name)
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._element_id)},
+            name=f"Domologica Element {self._element_id}",
+            manufacturer="Domologica",
+        )
+
+    @property
+    def is_on(self) -> bool | None:
+        e = element_by_id(self.coordinator.data, self._element_id)
+        if e is None:
+            return None
+        if has_status(e, "isswitchedon"):
+            return True
+        if has_status(e, "isswitchedoff"):
+            return False
+        ov = read_value(e, "Output Value")
+        if ov is not None:
+            try:
+                return float(ov) > 0
+            except ValueError:
+                return None
+        return None
+
+    @property
+    def brightness(self) -> int | None:
+        e = element_by_id(self.coordinator.data, self._element_id)
+        if e is None:
+            return None
+        dim = read_value(e, "getdimmer")
+        if dim is None:
             return None
         try:
-            return int(dimmer) * 255 // 100
+            # Domologica: 0–100 → HA: 0–255
+            return int(float(dim) * 255 / 100)
         except ValueError:
             return None
 
     async def async_turn_on(self, **kwargs):
-        if ColorMode.BRIGHTNESS in self.supported_color_modes and "brightness" in kwargs:
-            percent = int(kwargs["brightness"] * 100 / 255)
-            await self._send_command(f"setdimmer&value={percent}")
+        if "brightness" in kwargs:
+            ha_brightness = int(kwargs["brightness"])
+            domo_value = int(ha_brightness * 100 / 255)
+            await async_set_dimmer(
+                self.hass,
+                self.coordinator.base_url,
+                self._element_id,
+                domo_value,
+                self.coordinator.username,
+                self.coordinator.password,
+            )
         else:
-            await self._send_command("switchedon")
-
+            await async_command(
+                self.hass,
+                self.coordinator.base_url,
+                self._element_id,
+                "switchon",
+                self.coordinator.username,
+                self.coordinator.password,
+            )
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs):
-        await self._send_command("switchoff")
-        await self.coordinator.async_request_refresh()
-
-    async def _send_command(self, action: str):
-        """Invia comando HTTP al device Domologica."""
-        session = async_get_clientsession(self.hass)
-
-        url = f"http://192.168.5.2/elements/{self.element_path}.xml?action={action}"
-
-        auth = aiohttp.BasicAuth(
+        await async_command(
+            self.hass,
+            self.coordinator.base_url,
+            self._element_id,
+            "switchoff",
             self.coordinator.username,
             self.coordinator.password,
         )
-
-        try:
-            async with session.get(
-                url,
-                auth=auth,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as resp:
-                if resp.status != 200:
-                    raise Exception(f"HTTP {resp.status}")
-
-        except aiohttp.ClientError as err:
-            _LOGGER.error(
-                "Errore comando Domologica %s (%s): %s",
-                self.element_path,
-                action,
-                err,
-            )
-            raise
+        await self.coordinator.async_request_refresh()

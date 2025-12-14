@@ -1,8 +1,16 @@
 DOMAIN = "domologica"
-CONF_URL = "url"
+
+CONF_BASE_URL = "base_url"
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
-PLATFORMS = ["sensor", "light"]
+CONF_SCAN_INTERVAL = "scan_interval"
 
-import logging
-_LOGGER = logging.getLogger(__name__)
+DEFAULT_SCAN_INTERVAL = 30
+
+SERVICE_REFRESH = "refresh"
+SERVICE_COMMAND = "command"
+
+ATTR_ELEMENT_ID = "element_id"
+ATTR_ACTION = "action"
+
+PLATFORMS = ["light", "switch", "sensor", "cover"]

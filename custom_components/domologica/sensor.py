@@ -1,56 +1,61 @@
-import logging
-from homeassistant.helpers.entity import Entity
-from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
+from __future__ import annotations
+
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.helpers.entity import Entity, DeviceInfo
 
 from .const import DOMAIN
+from .utils import element_by_id, list_status_ids_with_value, read_value
 
-_LOGGER = logging.getLogger(__name__)
 
-
-async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities,
-):
-    """Setup dei sensori Domologica da config entry."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+async def async_setup_entry(hass, entry, async_add_entities):
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    root = coordinator.data
 
     entities = []
+    for elem in root.findall("ElementStatus"):
+        eid = elem.findtext("ElementPath")
+        if not eid:
+            continue
 
-    for element_path, statuses in coordinator.data.items():
-        entities.append(
-            DomologicaSensor(coordinator, element_path)
-        )
+        for sid in list_status_ids_with_value(elem):
+            entities.append(DomologicaSensor(coordinator, entry, str(eid), sid))
 
     async_add_entities(entities)
 
 
-class DomologicaSensor(Entity):
-    """Sensore Domologica per un singolo ElementPath."""
+class DomologicaSensor(CoordinatorEntity, Entity):
+    def __init__(self, coordinator, entry, element_id: str, status_id: str, element_name: str | None = None):
+        super().__init__(coordinator)
+        self.entry = entry
+        self._element_id = element_id
+        self._status_id = status_id
+        self._element_name = element_name(CoordinatorEntity, Entity):
+    def __init__(self, coordinator, entry, element_id: str, status_id: str):
+        super().__init__(coordinator)
+        self.entry = entry
+        self._element_id = element_id
+        self._status_id = status_id
 
-    def __init__(self, coordinator, element_path: str):
-        self.coordinator = coordinator
-        self.element_path = element_path
+    @property
+    def unique_id(self) -> str:
+        safe = self._status_id.replace(" ", "_")
+        return f"{self.entry.entry_id}_sensor_{self._element_id}_{safe}"
 
-        self._attr_name = f"Domologica {element_path}"
-        self._attr_unique_id = f"domologica_{element_path}"
+    @property
+    def name(self) -> str:
+        return normalize_entity_name(self._element_id, self._element_name, self._status_id)
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._element_id)},
+            name=f"Domologica Element {self._element_id}",
+            manufacturer="Domologica",
+        )
 
     @property
     def state(self):
-        """Stato principale del sensore."""
-        data = self.coordinator.data.get(self.element_path)
-        if not data:
+        e = element_by_id(self.coordinator.data, self._element_id)
+        if e is None:
             return None
-
-        # prende il primo status (es: isswitchedon / isswitchedoff)
-        return next(iter(data.values()))
-
-    @property
-    def extra_state_attributes(self):
-        """Attributi extra (tutti gli status XML)."""
-        return self.coordinator.data.get(self.element_path, {})
-
-    async def async_update(self):
-        """Richiede refresh al coordinator."""
-        await self.coordinator.async_request_refresh()
+        return read_value(e, self._status_id)
