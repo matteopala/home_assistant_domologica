@@ -19,12 +19,11 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
     entities = []
 
-    for element_path, statuses in coordinator.data.items():
+    for element_path, statuses in (coordinator.data or {}).items():
         entities.append(
             DomologicaLight(
                 coordinator=coordinator,
                 element_path=element_path,
-                statuses=statuses,
             )
         )
 
@@ -34,16 +33,16 @@ async def async_setup_entry(hass, entry, async_add_entities):
 class DomologicaLight(CoordinatorEntity, LightEntity):
     """Entità Light Domologica."""
 
-    def __init__(self, coordinator, element_path, statuses):
+    def __init__(self, coordinator, element_path):
         super().__init__(coordinator)
 
         self.element_path = element_path
-        self._statuses = statuses
 
         self._attr_unique_id = f"domologica_light_{element_path}"
         self._attr_name = f"Domologica Light {element_path}"
 
         # Capabilities
+        statuses = self.coordinator.data.get(element_path, {}) if self.coordinator.data else {}
         if "getdimmer" in statuses:
             self._attr_color_mode = ColorMode.BRIGHTNESS
             self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
@@ -53,11 +52,12 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
 
     @property
     def is_on(self):
-        return "isswitchedon" in self.coordinator.data.get(self.element_path, {})
+        statuses = self.coordinator.data.get(self.element_path, {}) if self.coordinator.data else {}
+        return "isswitchedon" in statuses
 
     @property
     def brightness(self):
-        statuses = self.coordinator.data.get(self.element_path, {})
+        statuses = self.coordinator.data.get(self.element_path, {}) if self.coordinator.data else {}
         dimmer = statuses.get("getdimmer")
         if dimmer is None:
             return None

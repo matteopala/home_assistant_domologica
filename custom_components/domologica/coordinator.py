@@ -35,6 +35,9 @@ class DomologicaDataUpdateCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(seconds=update_interval),
         )
 
+        # Assicuriamoci che data sia sempre un dizionario
+        self.data = {}
+
     async def _async_update_data(self):
         """Fetch dei dati da Domologica in modo asincrono."""
         session = async_get_clientsession(self.hass)
