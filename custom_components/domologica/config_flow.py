@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from typing import Any
 import voluptuous as vol
+from typing import Any
 
 from homeassistant import config_entries
-from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 
 from .const import (
@@ -36,8 +35,8 @@ def _schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
 class DomologicaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
-    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
-        errors: dict[str, str] = {}
+    async def async_step_user(self, user_input=None) -> FlowResult:
+        errors = {}
 
         if user_input is not None:
             base_url = user_input[CONF_BASE_URL].rstrip("/")
@@ -46,37 +45,40 @@ class DomologicaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ok = await async_test_connection(
                 self.hass,
                 base_url,
-                user_input.get(CONF_USERNAME) or None,
-                user_input.get(CONF_PASSWORD) or None,
+                user_input.get(CONF_USERNAME),
+                user_input.get(CONF_PASSWORD),
             )
             if not ok:
                 errors["base"] = "cannot_connect"
             else:
-                # Unica entry per base_url
                 await self.async_set_unique_id(base_url)
                 self._abort_if_unique_id_configured()
-                return self.async_create_entry(title="Domologica", data=user_input)
+                return self.async_create_entry(
+                    title="Domologica",
+                    data=user_input,
+                )
 
-        return self.async_show_form(step_id="user", data_schema=_schema(), errors=errors)
-
-    async def async_step_import(self, user_input: dict[str, Any]) -> FlowResult:
-        # Supporto import da YAML se serve
-        return await self.async_step_user(user_input)
+        return self.async_show_form(
+            step_id="user",
+            data_schema=_schema(),
+            errors=errors,
+        )
 
 
 class DomologicaOptionsFlow(config_entries.OptionsFlow):
-    def __init__(self, entry: config_entries.ConfigEntry) -> None:
+    def __init__(self, entry: config_entries.ConfigEntry):
         self.entry = entry
 
-    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+    async def async_step_init(self, user_input=None) -> FlowResult:
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
         defaults = {**self.entry.data, **self.entry.options}
-        return self.async_show_form(step_id="init", data_schema=_schema(defaults))
+        return self.async_show_form(
+            step_id="init",
+            data_schema=_schema(defaults),
+        )
 
 
-async def async_get_options_flow(
-    config_entry: config_entries.ConfigEntry,
-) -> DomologicaOptionsFlow:
+async def async_get_options_flow(config_entry):
     return DomologicaOptionsFlow(config_entry)

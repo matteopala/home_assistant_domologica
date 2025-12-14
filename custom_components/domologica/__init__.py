@@ -3,7 +3,14 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN, PLATFORMS, SERVICE_REFRESH, SERVICE_COMMAND, ATTR_ELEMENT_ID, ATTR_ACTION
+from .const import (
+    DOMAIN,
+    PLATFORMS,
+    SERVICE_REFRESH,
+    SERVICE_COMMAND,
+    ATTR_ELEMENT_ID,
+    ATTR_ACTION,
+)
 from .coordinator import DomologicaCoordinator
 from .utils import async_command
 
@@ -21,13 +28,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coordinator.async_request_refresh()
 
     async def _svc_command(call):
-        element_id = str(call.data[ATTR_ELEMENT_ID])
-        action = str(call.data[ATTR_ACTION])
         await async_command(
             hass,
             coordinator.base_url,
-            element_id,
-            action,
+            str(call.data[ATTR_ELEMENT_ID]),
+            str(call.data[ATTR_ACTION]),
             coordinator.username,
             coordinator.password,
         )
@@ -43,5 +48,4 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
-        # servizi rimangono se ci sono altre entry; per semplicità non li deregistriamo
     return unload_ok

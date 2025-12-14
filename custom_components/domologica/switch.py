@@ -5,7 +5,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity import DeviceInfo
 
 from .const import DOMAIN
-from .utils import async_command, element_by_id, has_status
+from .utils import async_command, element_by_id, has_status, normalize_entity_name
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
@@ -18,7 +18,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
         if not eid:
             continue
 
-        # euristica: switch se ha statuson/statusoff
         if has_status(elem, "statuson") or has_status(elem, "statusoff"):
             entities.append(DomologicaSwitch(coordinator, entry, str(eid)))
 
@@ -26,11 +25,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
 
 class DomologicaSwitch(CoordinatorEntity, SwitchEntity):
-    def __init__(self, coordinator, entry, element_id: str, element_name: str | None = None):
-        super().__init__(coordinator)
-        self.entry = entry
-        self._element_id = element_id
-        self._element_name = element_name(CoordinatorEntity, SwitchEntity):
     def __init__(self, coordinator, entry, element_id: str):
         super().__init__(coordinator)
         self.entry = entry
@@ -42,7 +36,7 @@ class DomologicaSwitch(CoordinatorEntity, SwitchEntity):
 
     @property
     def name(self) -> str:
-        return normalize_entity_name(self._element_id, self._element_name)
+        return normalize_entity_name(self._element_id)
 
     @property
     def device_info(self) -> DeviceInfo:

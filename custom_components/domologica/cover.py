@@ -5,7 +5,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity import DeviceInfo
 
 from .const import DOMAIN
-from .utils import async_command, element_by_id, has_status
+from .utils import async_command, element_by_id, has_status, normalize_entity_name
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
@@ -28,13 +28,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
 class DomologicaCover(CoordinatorEntity, CoverEntity):
     _attr_device_class = CoverDeviceClass.SHUTTER
 
-    def __init__(self, coordinator, entry, element_id: str, element_name: str | None = None):
-        super().__init__(coordinator)
-        self.entry = entry
-        self._element_id = element_id
-        self._element_name = element_name(CoordinatorEntity, CoverEntity):
-    _attr_device_class = CoverDeviceClass.SHUTTER
-
     def __init__(self, coordinator, entry, element_id: str):
         super().__init__(coordinator)
         self.entry = entry
@@ -46,13 +39,12 @@ class DomologicaCover(CoordinatorEntity, CoverEntity):
 
     @property
     def name(self) -> str:
-        return normalize_entity_name(self._element_id, self._element_name)
+        return normalize_entity_name(self._element_id)
 
     @property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self._element_id)},
-            name=normalize_entity_name(self._element_id, self._element_name),,
             name=f"Domologica Element {self._element_id}",
             manufacturer="Domologica",
         )
@@ -62,6 +54,9 @@ class DomologicaCover(CoordinatorEntity, CoverEntity):
         e = element_by_id(self.coordinator.data, self._element_id)
         if e is None:
             return None
+
+        # Nota: qui stiamo deducendo lo stato dalla presenza degli status.
+        # Se sono "eventi momentanei", questo potrebbe non riflettere la posizione reale.
         if has_status(e, "down switched"):
             return True
         if has_status(e, "up switched"):

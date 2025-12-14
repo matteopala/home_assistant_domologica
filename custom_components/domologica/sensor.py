@@ -4,7 +4,12 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity import Entity, DeviceInfo
 
 from .const import DOMAIN
-from .utils import element_by_id, list_status_ids_with_value, read_value
+from .utils import (
+    element_by_id,
+    list_status_ids_with_value,
+    read_value,
+    normalize_entity_name,
+)
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
@@ -18,18 +23,14 @@ async def async_setup_entry(hass, entry, async_add_entities):
             continue
 
         for sid in list_status_ids_with_value(elem):
-            entities.append(DomologicaSensor(coordinator, entry, str(eid), sid))
+            entities.append(
+                DomologicaSensor(coordinator, entry, str(eid), sid)
+            )
 
     async_add_entities(entities)
 
 
 class DomologicaSensor(CoordinatorEntity, Entity):
-    def __init__(self, coordinator, entry, element_id: str, status_id: str, element_name: str | None = None):
-        super().__init__(coordinator)
-        self.entry = entry
-        self._element_id = element_id
-        self._status_id = status_id
-        self._element_name = element_name(CoordinatorEntity, Entity):
     def __init__(self, coordinator, entry, element_id: str, status_id: str):
         super().__init__(coordinator)
         self.entry = entry
@@ -43,7 +44,7 @@ class DomologicaSensor(CoordinatorEntity, Entity):
 
     @property
     def name(self) -> str:
-        return normalize_entity_name(self._element_id, self._element_name, self._status_id)
+        return normalize_entity_name(self._element_id, None, self._status_id)
 
     @property
     def device_info(self) -> DeviceInfo:
