@@ -1,10 +1,7 @@
 import logging
 import aiohttp
 
-from homeassistant.components.light import (
-    LightEntity,
-    ColorMode,
-)
+from homeassistant.components.light import LightEntity, ColorMode
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
@@ -14,18 +11,17 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass, entry, async_add_entities):
     """Setup luci Domologica."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]
+    entry_data = hass.data[DOMAIN][entry.entry_id]
+    coordinator = entry_data["coordinator"]
 
     entities = []
 
     for element_path, statuses in coordinator.data.items():
-        # Consideriamo luce solo se ha switched on/off
         if "isswitchedon" in statuses or "isswitchedoff" in statuses:
             entities.append(
                 DomologicaLight(
                     coordinator=coordinator,
                     element_path=element_path,
-                    statuses=statuses,
                 )
             )
 
@@ -35,15 +31,14 @@ async def async_setup_entry(hass, entry, async_add_entities):
 class DomologicaLight(CoordinatorEntity, LightEntity):
     """Entità luce Domologica."""
 
-    def __init__(self, coordinator, element_path, statuses):
+    def __init__(self, coordinator, element_path):
         super().__init__(coordinator)
 
         self.element_path = element_path
-        self.statuses = statuses
-
         self._attr_unique_id = f"domologica_light_{element_path}"
 
-        # Nome: dimmer o light
+        statuses = coordinator.data.get(element_path, {})
+
         if "getdimmer" in statuses:
             self._attr_name = f"Domologica Dimmer {element_path}"
             self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
@@ -55,33 +50,28 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
 
     @property
     def is_on(self):
-        """Stato ON/OFF."""
-        return "isswitchedon" in self.coordinator.data.get(self.element_path, {})
+        statuses = self.coordinator.data.get(self.element_path, {})
+        return "isswitchedon" in statuses
 
     @property
     def brightness(self):
-        """Luminosità (0–255)."""
         statuses = self.coordinator.data.get(self.element_path, {})
         if "getdimmer" in statuses:
             try:
-                value = int(statuses["getdimmer"])
-                return int(value * 255 / 100)
+                return int(int(statuses["getdimmer"]) * 255 / 100)
             except Exception:
                 return None
         return None
 
     async def async_turn_on(self, **kwargs):
-        """Accende la luce."""
         await self._send_command("switchedon")
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs):
-        """Spegne la luce."""
         await self._send_command("switchoff")
         await self.coordinator.async_request_refresh()
 
     async def _send_command(self, action):
-        """Invia comando HTTP a Domologica."""
         url = f"{self.coordinator.url}/elements/{self.element_path}.xml?action={action}"
 
         auth = aiohttp.BasicAuth(
