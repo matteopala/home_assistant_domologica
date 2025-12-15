@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
 
@@ -43,12 +44,13 @@ class DomologicaCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]])
 
         super().__init__(
             hass,
-            logger=_LOGGER,  # mai None
+            logger=_LOGGER,
             name=DOMAIN,
             update_interval=timedelta(seconds=self.scan_interval),
         )
 
-        # Debounce refresh post-comando: evita refresh "a raffica"
+        # Debounce: se arrivano molte richieste di refresh in poco tempo,
+        # le raggruppa in una sola (evita tempeste di chiamate)
         self._debounced_refresh = Debouncer(
             hass,
             _LOGGER,
@@ -57,8 +59,38 @@ class DomologicaCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]])
             function=self.async_request_refresh,
         )
 
+        # Task micro-turbo (lo cancelliamo e lo reiniziamo ad ogni comando)
+        self._turbo_task: asyncio.Task | None = None
+
     async def async_schedule_refresh(self) -> None:
+        """Refresh debounced standard (1 chiamata anche se richiesto più volte)."""
         await self._debounced_refresh.async_call()
+
+    async def async_schedule_refresh_turbo(self) -> None:
+        """
+        Micro-turbo: refresh subito (debounced) + refresh extra a breve distanza.
+        Utile dopo un comando per confermare velocemente lo stato reale.
+        """
+        # refresh “immediato” (debounced)
+        await self.async_schedule_refresh()
+
+        # se un altro comando arriva, resettiamo il turbo (niente accodamenti infiniti)
+        if self._turbo_task and not self._turbo_task.done():
+            self._turbo_task.cancel()
+
+        self._turbo_task = asyncio.create_task(self._turbo_worker())
+
+    async def _turbo_worker(self) -> None:
+        try:
+            # 2 refresh extra: +1s e +3s (puoi cambiare i tempi se vuoi)
+            await asyncio.sleep(1.0)
+            await self.async_schedule_refresh()
+
+            await asyncio.sleep(2.0)  # totale ~3s dal comando
+            await self.async_schedule_refresh()
+        except asyncio.CancelledError:
+            # normale: arriva un nuovo comando e resetta il turbo
+            return
 
     def apply_optimistic(
         self,
@@ -66,11 +98,7 @@ class DomologicaCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]])
         updates: dict[str, object],
         remove: set[str] | None = None,
     ) -> None:
-        """
-        Aggiorna subito la cache locale e notifica HA.
-        Questo aggiorna IMMEDIATAMENTE anche i sensori che leggono da coordinator.data
-        (es: sensor.element_48_getdimmer).
-        """
+        """Aggiorna subito la cache e notifica HA (aggiorna anche sensori)."""
         current = self.data or {}
         new_data: dict[str, dict[str, object]] = dict(current)
 

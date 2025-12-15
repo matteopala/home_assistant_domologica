@@ -83,7 +83,7 @@ class DomologicaSwitch(CoordinatorEntity, SwitchEntity):
         self._opt_until = time.monotonic() + 2.5
         self.async_write_ha_state()
 
-        await self.coordinator.async_schedule_refresh()
+        await self.coordinator.async_schedule_refresh_turbo()
 
     async def async_turn_off(self, **kwargs):
         await async_command(
@@ -106,4 +106,5 @@ class DomologicaSwitch(CoordinatorEntity, SwitchEntity):
         self._opt_until = time.monotonic() + 2.5
         self.async_write_ha_state()
 
-        await self.coordinator.async_schedule_refresh()
+        await self.coordinator.async_schedule_refresh_turbo()
+
