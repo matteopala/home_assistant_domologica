@@ -19,9 +19,12 @@ from .const import (
     CONF_ALIASES,
     CONF_ENABLED_ELEMENTS,
 )
-from .utils import async_fetch_element_statuses, parse_statuses
+from .utils import async_fetch_element_statuses, parse_statuses, async_fetch_element_info
 
 _LOGGER = logging.getLogger(__name__)
+
+# quante chiamate /api/elements/<id>.xml in parallelo (bootstrap iniziale)
+_META_CONCURRENCY = 8
 
 
 class DomologicaCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
@@ -43,9 +46,13 @@ class DomologicaCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]])
             or DEFAULT_SCAN_INTERVAL
         )
 
-        # Wizard/Options
+        # optional: alias e enabled
         self.aliases: dict[str, str] = dict(opts.get(CONF_ALIASES) or {})
         self.enabled_elements: set[str] = set(opts.get(CONF_ENABLED_ELEMENTS) or [])
+
+        # metadati da /api/elements/<id>.xml
+        self.element_info: dict[str, dict[str, object]] = {}
+        self._meta_bootstrap_done = False
 
         super().__init__(
             hass,
@@ -54,7 +61,6 @@ class DomologicaCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]])
             update_interval=timedelta(seconds=self.scan_interval),
         )
 
-        # Debounce un po’ più largo: evita refresh inutili su toggle rapidi
         self._debounced_refresh = Debouncer(
             hass,
             _LOGGER,
@@ -70,13 +76,12 @@ class DomologicaCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]])
     # -------------------------
 
     def schedule_refresh(self) -> None:
-        """Chiede un refresh senza bloccare la service call."""
         self.hass.async_create_task(self._debounced_refresh.async_call())
 
     def schedule_refresh_turbo(self) -> None:
         """
-        Micro-turbo: refresh debounced subito + extra refresh a +1s e +3s.
-        Non blocca mai il comando.
+        Micro-turbo: refresh debounced + extra refresh a +1s e +3s.
+        Non blocca mai le service call.
         """
         self.schedule_refresh()
 
@@ -89,7 +94,7 @@ class DomologicaCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]])
         try:
             await asyncio.sleep(1.0)
             await self._debounced_refresh.async_call()
-            await asyncio.sleep(2.0)  # totale ~3s dal comando
+            await asyncio.sleep(2.0)
             await self._debounced_refresh.async_call()
         except asyncio.CancelledError:
             return
@@ -116,6 +121,27 @@ class DomologicaCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]])
         new_data[element_id] = elem
         self.async_set_updated_data(new_data)
 
+    # -------------------------
+    # Metadati (bootstrap)
+    # -------------------------
+
+    async def _bootstrap_element_info(self, element_ids: list[str]) -> None:
+        """Carica i metadati una tantum con concorrenza limitata."""
+        sem = asyncio.Semaphore(_META_CONCURRENCY)
+
+        async def _one(eid: str):
+            if eid in self.element_info:
+                return
+            async with sem:
+                info = await async_fetch_element_info(
+                    self.hass, self.base_url, eid, self.username, self.password
+                )
+                self.element_info[eid] = info
+
+        tasks = [_one(eid) for eid in element_ids]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
     async def _async_update_data(self) -> dict[str, dict[str, object]]:
         try:
             root = await async_fetch_element_statuses(
@@ -126,6 +152,22 @@ class DomologicaCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]])
             if not self.enabled_elements:
                 self.enabled_elements = set(data.keys())
 
+            # Bootstrap metadati UNA SOLA VOLTA:
+            # - elementi "vuoti"
+            # - elementi "binary" (isswitchedon/off) senza dimmer: ambigui (luce vs presa)
+            if not self._meta_bootstrap_done:
+                candidates = [
+                    eid
+                    for eid, st in data.items()
+                    if (not st)
+                    or (("isswitchedon" in st or "isswitchedoff" in st) and ("getdimmer" not in st))
+                ]
+                # carica solo quelli non ancora in cache
+                missing = [eid for eid in candidates if eid not in self.element_info]
+                await self._bootstrap_element_info(missing)
+                self._meta_bootstrap_done = True
+
             return data
+
         except Exception as err:
             raise UpdateFailed(f"Domologica update failed: {err}") from err

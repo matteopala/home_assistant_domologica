@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 
-from homeassistant.components.cover import CoverEntity, CoverDeviceClass
+from homeassistant.components.cover import CoverEntity, CoverDeviceClass, CoverEntityFeature
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity import DeviceInfo
 
@@ -14,13 +14,18 @@ async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]
     data = coordinator.data or {}
     enabled = getattr(coordinator, "enabled_elements", set())
+    info_map = getattr(coordinator, "element_info", {})
 
     entities = []
     for eid, st in data.items():
         if enabled and eid not in enabled:
             continue
 
-        if "up switched" in st or "down switched" in st:
+        info = info_map.get(eid, {})
+        kind = info.get("kind")
+
+        # cover se status lo indica O metadati dicono cover
+        if ("up switched" in st) or ("down switched" in st) or (kind == "cover"):
             entities.append(DomologicaCover(coordinator, entry, eid))
 
     async_add_entities(entities)
@@ -28,6 +33,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
 class DomologicaCover(CoordinatorEntity, CoverEntity):
     _attr_device_class = CoverDeviceClass.SHUTTER
+    _attr_supported_features = CoverEntityFeature.OPEN | CoverEntityFeature.CLOSE | CoverEntityFeature.STOP
 
     def __init__(self, coordinator, entry, element_id: str):
         super().__init__(coordinator)
@@ -43,12 +49,16 @@ class DomologicaCover(CoordinatorEntity, CoverEntity):
 
     @property
     def name(self) -> str:
-        alias = getattr(self.coordinator, "aliases", {}).get(self._element_id)
+        info = getattr(self.coordinator, "element_info", {}).get(self._element_id, {})
+        api_name = info.get("name")
+        alias = getattr(self.coordinator, "aliases", {}).get(self._element_id) or api_name
         return normalize_entity_name(self._element_id, alias)
 
     @property
     def device_info(self) -> DeviceInfo:
-        alias = getattr(self.coordinator, "aliases", {}).get(self._element_id)
+        info = getattr(self.coordinator, "element_info", {}).get(self._element_id, {})
+        api_name = info.get("name")
+        alias = getattr(self.coordinator, "aliases", {}).get(self._element_id) or api_name
         return DeviceInfo(
             identifiers={(DOMAIN, self._element_id)},
             name=f"Domologica {normalize_entity_name(self._element_id, alias)}",
@@ -64,10 +74,15 @@ class DomologicaCover(CoordinatorEntity, CoverEntity):
             return self._opt_closed
 
         st = (self.coordinator.data or {}).get(self._element_id, {})
+
+        # Se hai status "up switched/down switched" li usiamo
         if "down switched" in st:
             return True
         if "up switched" in st:
             return False
+
+        # Altrimenti, per ShutterElement spesso ci sono isgoingup/isgoingdown:
+        # non indica "chiusa/aperta", ma almeno evita stati incoerenti.
         return None
 
     async def async_open_cover(self, **kwargs):
@@ -90,7 +105,6 @@ class DomologicaCover(CoordinatorEntity, CoverEntity):
         self._opt_until = time.monotonic() + 2.5
         self.async_write_ha_state()
 
-        # ✅ NON BLOCCANTE
         self.coordinator.schedule_refresh_turbo()
 
     async def async_close_cover(self, **kwargs):
@@ -113,5 +127,19 @@ class DomologicaCover(CoordinatorEntity, CoverEntity):
         self._opt_until = time.monotonic() + 2.5
         self.async_write_ha_state()
 
-        # ✅ NON BLOCCANTE
+        self.coordinator.schedule_refresh_turbo()
+
+    async def async_stop_cover(self, **kwargs):
+        await async_command(
+            self.hass,
+            self.coordinator.base_url,
+            self._element_id,
+            "stop",
+            self.coordinator.username,
+            self.coordinator.password,
+        )
+
+        self._opt_until = time.monotonic() + 1.5
+        self.async_write_ha_state()
+
         self.coordinator.schedule_refresh_turbo()

@@ -14,27 +14,42 @@ async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]
     data = coordinator.data or {}
     enabled = getattr(coordinator, "enabled_elements", set())
+    info_map = getattr(coordinator, "element_info", {})
 
     entities = []
     for eid, st in data.items():
         if enabled and eid not in enabled:
             continue
 
-        if (
-            "isswitchedon" in st
-            or "isswitchedoff" in st
-            or "getdimmer" in st
-            or "pwmValue" in st
-        ):
+        info = info_map.get(eid, {})
+        kind = info.get("kind")  # 'light', 'light_dimmer', 'cover', 'switch_outlet', ...
+
+        # NON creare luci per prese/switch/outlet
+        if kind in ("switch_outlet", "switch", "cover"):
+            continue
+
+        # luce dimmer o luce on/off:
+        if kind in ("light", "light_dimmer"):
             entities.append(DomologicaLight(coordinator, entry, eid))
+            continue
+
+        # fallback (se metadati non presenti): solo se vedo getdimmer/pwm o flag tipici luce
+        if (
+            "getdimmer" in st
+            or "pwmValue" in st
+            or "isswitchedon" in st
+            or "isswitchedoff" in st
+        ):
+            # attenzione: potrebbe essere una presa se non abbiamo metadati.
+            # preferiamo NON crearla qui per evitare piattaforma sbagliata.
+            # quindi creiamo solo se dimmerabile (getdimmer/pwm).
+            if "getdimmer" in st or "pwmValue" in st:
+                entities.append(DomologicaLight(coordinator, entry, eid))
 
     async_add_entities(entities)
 
 
 class DomologicaLight(CoordinatorEntity, LightEntity):
-    _attr_color_mode = ColorMode.BRIGHTNESS
-    _attr_supported_color_modes = {ColorMode.BRIGHTNESS}
-
     def __init__(self, coordinator, entry, element_id: str):
         super().__init__(coordinator)
         self.entry = entry
@@ -44,18 +59,35 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
         self._opt_is_on: bool | None = None
         self._opt_brightness: int | None = None
 
+        info = getattr(self.coordinator, "element_info", {}).get(self._element_id, {})
+        kind = info.get("kind")
+
+        st = (self.coordinator.data or {}).get(self._element_id, {})
+        self._is_dimmer = (kind == "light_dimmer") or ("getdimmer" in st)
+
+        if self._is_dimmer:
+            self._attr_color_mode = ColorMode.BRIGHTNESS
+            self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
+        else:
+            self._attr_color_mode = ColorMode.ONOFF
+            self._attr_supported_color_modes = {ColorMode.ONOFF}
+
     @property
     def unique_id(self) -> str:
         return f"{self.entry.entry_id}_light_{self._element_id}"
 
     @property
     def name(self) -> str:
-        alias = getattr(self.coordinator, "aliases", {}).get(self._element_id)
+        info = getattr(self.coordinator, "element_info", {}).get(self._element_id, {})
+        api_name = info.get("name")
+        alias = getattr(self.coordinator, "aliases", {}).get(self._element_id) or api_name
         return normalize_entity_name(self._element_id, alias)
 
     @property
     def device_info(self) -> DeviceInfo:
-        alias = getattr(self.coordinator, "aliases", {}).get(self._element_id)
+        info = getattr(self.coordinator, "element_info", {}).get(self._element_id, {})
+        api_name = info.get("name")
+        alias = getattr(self.coordinator, "aliases", {}).get(self._element_id) or api_name
         return DeviceInfo(
             identifiers={(DOMAIN, self._element_id)},
             name=f"Domologica {normalize_entity_name(self._element_id, alias)}",
@@ -79,6 +111,9 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
 
     @property
     def brightness(self) -> int | None:
+        if not self._is_dimmer:
+            return None
+
         if self._optimistic_active() and self._opt_brightness is not None:
             return self._opt_brightness
 
@@ -92,7 +127,7 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
             return None
 
     async def async_turn_on(self, **kwargs):
-        if "brightness" in kwargs:
+        if self._is_dimmer and "brightness" in kwargs:
             ha_brightness = int(kwargs["brightness"])
             domo_value = int(ha_brightness * 100 / 255)
 
@@ -105,17 +140,12 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
                 self.coordinator.password,
             )
 
-            # ✅ aggiorna cache subito (sensori getdimmer inclusi)
             self.coordinator.apply_optimistic(
                 self._element_id,
-                updates={
-                    "getdimmer": str(domo_value),
-                    "isswitchedon": True,
-                },
+                updates={"getdimmer": str(domo_value), "isswitchedon": True},
                 remove={"isswitchedoff"},
             )
 
-            # optimistic UI
             self._opt_is_on = True
             self._opt_brightness = ha_brightness
             self._opt_until = time.monotonic() + 2.5
@@ -142,7 +172,7 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
             self._opt_until = time.monotonic() + 2.5
             self.async_write_ha_state()
 
-        # ✅ NON BLOCCANTE
+        # ✅ non blocca
         self.coordinator.schedule_refresh_turbo()
 
     async def async_turn_off(self, **kwargs):
@@ -165,5 +195,5 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
         self._opt_until = time.monotonic() + 2.5
         self.async_write_ha_state()
 
-        # ✅ NON BLOCCANTE
+        # ✅ non blocca
         self.coordinator.schedule_refresh_turbo()
