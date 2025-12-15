@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
@@ -16,15 +17,21 @@ from .const import (
 )
 from .utils import async_fetch_element_statuses
 
+_LOGGER = logging.getLogger(__name__)
+
 
 class DomologicaCoordinator(DataUpdateCoordinator):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
         self.entry = entry
 
-        data = entry.data
-        opts = entry.options
+        data = entry.data or {}
+        opts = entry.options or {}
 
-        self.base_url = (opts.get(CONF_BASE_URL) or data[CONF_BASE_URL]).rstrip("/")
+        base_url = (opts.get(CONF_BASE_URL) or data.get(CONF_BASE_URL) or "").rstrip("/")
+        if not base_url:
+            raise ValueError("Domologica: base_url missing in config entry")
+
+        self.base_url = base_url
         self.username = opts.get(CONF_USERNAME) or data.get(CONF_USERNAME)
         self.password = opts.get(CONF_PASSWORD) or data.get(CONF_PASSWORD)
         self.scan_interval = int(
@@ -35,7 +42,7 @@ class DomologicaCoordinator(DataUpdateCoordinator):
 
         super().__init__(
             hass,
-            logger=None,
+            logger=_LOGGER,  # ✅ MAI None
             name=DOMAIN,
             update_interval=timedelta(seconds=self.scan_interval),
         )
