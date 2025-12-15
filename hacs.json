@@ -1,0 +1,8 @@
+{
+  "name": "Home Assistant Domologica",
+  "content_in_root": false,
+  "homeassistant": "2024.0.0",
+  "hacs": "1.0.0",
+  "description": "Domologica for Home Assistant",
+  "domains": ["light","sensor"]
+}
