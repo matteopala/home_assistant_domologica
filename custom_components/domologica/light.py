@@ -99,6 +99,16 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
                 self.coordinator.password,
             )
 
+            # ✅ aggiorna subito la cache per far aggiornare anche i sensori (getdimmer)
+            self.coordinator.apply_optimistic(
+                self._element_id,
+                updates={
+                    "getdimmer": str(domo_value),
+                    "isswitchedon": True,
+                },
+                remove={"isswitchedoff"},
+            )
+
             # optimistic UI
             self._opt_is_on = True
             self._opt_brightness = ha_brightness
@@ -113,6 +123,13 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
                 "switchon",
                 self.coordinator.username,
                 self.coordinator.password,
+            )
+
+            # ✅ aggiorna subito la cache per sensori/altre entità
+            self.coordinator.apply_optimistic(
+                self._element_id,
+                updates={"isswitchedon": True},
+                remove={"isswitchedoff"},
             )
 
             self._opt_is_on = True
@@ -130,6 +147,13 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
             "switchoff",
             self.coordinator.username,
             self.coordinator.password,
+        )
+
+        # ✅ aggiorna subito la cache (sensori e stato)
+        self.coordinator.apply_optimistic(
+            self._element_id,
+            updates={"isswitchedoff": True},
+            remove={"isswitchedon"},
         )
 
         self._opt_is_on = False

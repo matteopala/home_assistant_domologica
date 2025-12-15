@@ -43,7 +43,7 @@ class DomologicaCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]])
 
         super().__init__(
             hass,
-            logger=_LOGGER,
+            logger=_LOGGER,  # mai None
             name=DOMAIN,
             update_interval=timedelta(seconds=self.scan_interval),
         )
@@ -59,6 +59,31 @@ class DomologicaCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]])
 
     async def async_schedule_refresh(self) -> None:
         await self._debounced_refresh.async_call()
+
+    def apply_optimistic(
+        self,
+        element_id: str,
+        updates: dict[str, object],
+        remove: set[str] | None = None,
+    ) -> None:
+        """
+        Aggiorna subito la cache locale e notifica HA.
+        Questo aggiorna IMMEDIATAMENTE anche i sensori che leggono da coordinator.data
+        (es: sensor.element_48_getdimmer).
+        """
+        current = self.data or {}
+        new_data: dict[str, dict[str, object]] = dict(current)
+
+        elem = dict(new_data.get(element_id, {}))
+
+        if remove:
+            for k in remove:
+                elem.pop(k, None)
+
+        elem.update(updates)
+        new_data[element_id] = elem
+
+        self.async_set_updated_data(new_data)
 
     async def _async_update_data(self) -> dict[str, dict[str, object]]:
         try:

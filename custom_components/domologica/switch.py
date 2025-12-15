@@ -71,9 +71,18 @@ class DomologicaSwitch(CoordinatorEntity, SwitchEntity):
             self.coordinator.username,
             self.coordinator.password,
         )
+
+        # ✅ aggiorna subito cache per sensori/altre entità
+        self.coordinator.apply_optimistic(
+            self._element_id,
+            updates={"statuson": True},
+            remove={"statusoff"},
+        )
+
         self._opt_is_on = True
         self._opt_until = time.monotonic() + 2.5
         self.async_write_ha_state()
+
         await self.coordinator.async_schedule_refresh()
 
     async def async_turn_off(self, **kwargs):
@@ -85,7 +94,16 @@ class DomologicaSwitch(CoordinatorEntity, SwitchEntity):
             self.coordinator.username,
             self.coordinator.password,
         )
+
+        # ✅ aggiorna subito cache per sensori/altre entità
+        self.coordinator.apply_optimistic(
+            self._element_id,
+            updates={"statusoff": True},
+            remove={"statuson"},
+        )
+
         self._opt_is_on = False
         self._opt_until = time.monotonic() + 2.5
         self.async_write_ha_state()
+
         await self.coordinator.async_schedule_refresh()

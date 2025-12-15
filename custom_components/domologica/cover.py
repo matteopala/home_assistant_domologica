@@ -73,9 +73,18 @@ class DomologicaCover(CoordinatorEntity, CoverEntity):
             self.coordinator.username,
             self.coordinator.password,
         )
+
+        # ✅ aggiorna subito cache (così anche sensori/status correlati seguono)
+        self.coordinator.apply_optimistic(
+            self._element_id,
+            updates={"up switched": True},
+            remove={"down switched"},
+        )
+
         self._opt_closed = False
         self._opt_until = time.monotonic() + 2.5
         self.async_write_ha_state()
+
         await self.coordinator.async_schedule_refresh()
 
     async def async_close_cover(self, **kwargs):
@@ -87,7 +96,16 @@ class DomologicaCover(CoordinatorEntity, CoverEntity):
             self.coordinator.username,
             self.coordinator.password,
         )
+
+        # ✅ aggiorna subito cache (così anche sensori/status correlati seguono)
+        self.coordinator.apply_optimistic(
+            self._element_id,
+            updates={"down switched": True},
+            remove={"up switched"},
+        )
+
         self._opt_closed = True
         self._opt_until = time.monotonic() + 2.5
         self.async_write_ha_state()
+
         await self.coordinator.async_schedule_refresh()
