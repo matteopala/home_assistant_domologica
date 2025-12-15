@@ -13,9 +13,13 @@ from .utils import async_command, async_set_dimmer, normalize_entity_name
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]
     data = coordinator.data or {}
+    enabled = getattr(coordinator, "enabled_elements", set())
 
     entities = []
     for eid, st in data.items():
+        if enabled and eid not in enabled:
+            continue
+
         if (
             "isswitchedon" in st
             or "isswitchedoff" in st
@@ -46,13 +50,15 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
 
     @property
     def name(self) -> str:
-        return normalize_entity_name(self._element_id)
+        alias = getattr(self.coordinator, "aliases", {}).get(self._element_id)
+        return normalize_entity_name(self._element_id, alias)
 
     @property
     def device_info(self) -> DeviceInfo:
+        alias = getattr(self.coordinator, "aliases", {}).get(self._element_id)
         return DeviceInfo(
             identifiers={(DOMAIN, self._element_id)},
-            name=f"Domologica Element {self._element_id}",
+            name=f"Domologica {normalize_entity_name(self._element_id, alias)}",
             manufacturer="Domologica",
         )
 
@@ -99,7 +105,7 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
                 self.coordinator.password,
             )
 
-            # ✅ aggiorna subito la cache per far aggiornare anche i sensori (getdimmer)
+            # ✅ aggiorna cache subito (anche sensori getdimmer)
             self.coordinator.apply_optimistic(
                 self._element_id,
                 updates={
@@ -125,7 +131,6 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
                 self.coordinator.password,
             )
 
-            # ✅ aggiorna subito la cache per sensori/altre entità
             self.coordinator.apply_optimistic(
                 self._element_id,
                 updates={"isswitchedon": True},
@@ -133,7 +138,7 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
             )
 
             self._opt_is_on = True
-            self._opt_brightness = self.brightness  # keep if known
+            self._opt_brightness = self.brightness
             self._opt_until = time.monotonic() + 2.5
             self.async_write_ha_state()
 
@@ -149,7 +154,6 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
             self.coordinator.password,
         )
 
-        # ✅ aggiorna subito la cache (sensori e stato)
         self.coordinator.apply_optimistic(
             self._element_id,
             updates={"isswitchedoff": True},
@@ -161,4 +165,3 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
         self.async_write_ha_state()
 
         await self.coordinator.async_schedule_refresh_turbo()
-

@@ -13,9 +13,13 @@ from .utils import async_command, normalize_entity_name
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]
     data = coordinator.data or {}
+    enabled = getattr(coordinator, "enabled_elements", set())
 
     entities = []
     for eid, st in data.items():
+        if enabled and eid not in enabled:
+            continue
+
         if "statuson" in st or "statusoff" in st:
             entities.append(DomologicaSwitch(coordinator, entry, eid))
 
@@ -37,13 +41,15 @@ class DomologicaSwitch(CoordinatorEntity, SwitchEntity):
 
     @property
     def name(self) -> str:
-        return normalize_entity_name(self._element_id)
+        alias = getattr(self.coordinator, "aliases", {}).get(self._element_id)
+        return normalize_entity_name(self._element_id, alias)
 
     @property
     def device_info(self) -> DeviceInfo:
+        alias = getattr(self.coordinator, "aliases", {}).get(self._element_id)
         return DeviceInfo(
             identifiers={(DOMAIN, self._element_id)},
-            name=f"Domologica Element {self._element_id}",
+            name=f"Domologica {normalize_entity_name(self._element_id, alias)}",
             manufacturer="Domologica",
         )
 
@@ -72,7 +78,6 @@ class DomologicaSwitch(CoordinatorEntity, SwitchEntity):
             self.coordinator.password,
         )
 
-        # ✅ aggiorna subito cache per sensori/altre entità
         self.coordinator.apply_optimistic(
             self._element_id,
             updates={"statuson": True},
@@ -95,7 +100,6 @@ class DomologicaSwitch(CoordinatorEntity, SwitchEntity):
             self.coordinator.password,
         )
 
-        # ✅ aggiorna subito cache per sensori/altre entità
         self.coordinator.apply_optimistic(
             self._element_id,
             updates={"statusoff": True},
@@ -107,4 +111,3 @@ class DomologicaSwitch(CoordinatorEntity, SwitchEntity):
         self.async_write_ha_state()
 
         await self.coordinator.async_schedule_refresh_turbo()
-

@@ -29,12 +29,14 @@ async def async_fetch_element_statuses(
 
     try:
         async with session.get(url, auth=auth, timeout=_TIMEOUT) as resp:
-            _LOGGER.warning("Domologica GET %s -> HTTP %s", url, resp.status)
+            # ✅ niente log a livello warning in polling
+            _LOGGER.debug("Domologica GET %s -> HTTP %s", url, resp.status)
             resp.raise_for_status()
             text = await resp.text()
             return ET.fromstring(text)
 
     except ClientResponseError as err:
+        # ✅ log solo su errori HTTP
         _LOGGER.error("Domologica HTTP error %s on %s", err.status, url)
         raise
     except Exception as err:
@@ -43,13 +45,7 @@ async def async_fetch_element_statuses(
 
 
 def parse_statuses(root: ET.Element) -> dict[str, dict[str, object]]:
-    """
-    Converte l'XML in un dict indicizzato:
-    {
-      "48": {"getdimmer": "51", "isswitchedoff": True, ...},
-      ...
-    }
-    """
+    """Converte l'XML in dict indicizzato: { '48': {'getdimmer': '51', 'isswitchedoff': True}, ... }"""
     elements: dict[str, dict[str, object]] = {}
 
     for el in root.findall("ElementStatus"):
@@ -97,7 +93,6 @@ async def async_set_dimmer(
     username: str | None,
     password: str | None,
 ) -> None:
-    # POST autenticata: action=setdimmer + form fields
     url = f"{base_url.rstrip('/')}/elements/{element_id}.xml?action=setdimmer"
     session = async_get_clientsession(hass)
     auth = _auth(username, password)

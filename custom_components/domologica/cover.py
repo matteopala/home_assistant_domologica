@@ -13,9 +13,13 @@ from .utils import async_command, normalize_entity_name
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]
     data = coordinator.data or {}
+    enabled = getattr(coordinator, "enabled_elements", set())
 
     entities = []
     for eid, st in data.items():
+        if enabled and eid not in enabled:
+            continue
+
         if "up switched" in st or "down switched" in st:
             entities.append(DomologicaCover(coordinator, entry, eid))
 
@@ -39,13 +43,15 @@ class DomologicaCover(CoordinatorEntity, CoverEntity):
 
     @property
     def name(self) -> str:
-        return normalize_entity_name(self._element_id)
+        alias = getattr(self.coordinator, "aliases", {}).get(self._element_id)
+        return normalize_entity_name(self._element_id, alias)
 
     @property
     def device_info(self) -> DeviceInfo:
+        alias = getattr(self.coordinator, "aliases", {}).get(self._element_id)
         return DeviceInfo(
             identifiers={(DOMAIN, self._element_id)},
-            name=f"Domologica Element {self._element_id}",
+            name=f"Domologica {normalize_entity_name(self._element_id, alias)}",
             manufacturer="Domologica",
         )
 
@@ -74,7 +80,6 @@ class DomologicaCover(CoordinatorEntity, CoverEntity):
             self.coordinator.password,
         )
 
-        # ✅ aggiorna subito cache (così anche sensori/status correlati seguono)
         self.coordinator.apply_optimistic(
             self._element_id,
             updates={"up switched": True},
@@ -97,7 +102,6 @@ class DomologicaCover(CoordinatorEntity, CoverEntity):
             self.coordinator.password,
         )
 
-        # ✅ aggiorna subito cache (così anche sensori/status correlati seguono)
         self.coordinator.apply_optimistic(
             self._element_id,
             updates={"down switched": True},
@@ -109,4 +113,3 @@ class DomologicaCover(CoordinatorEntity, CoverEntity):
         self.async_write_ha_state()
 
         await self.coordinator.async_schedule_refresh_turbo()
-

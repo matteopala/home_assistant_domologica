@@ -5,7 +5,11 @@ CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_SCAN_INTERVAL = "scan_interval"
 
-DEFAULT_SCAN_INTERVAL = 30
+# Wizard / Options
+CONF_ALIASES = "aliases"  # dict: {"48": "Luce Cucina", ...}
+CONF_ENABLED_ELEMENTS = "enabled_elements"  # list: ["48","25",...]
+
+DEFAULT_SCAN_INTERVAL = 20
 
 SERVICE_REFRESH = "refresh"
 SERVICE_COMMAND = "command"
