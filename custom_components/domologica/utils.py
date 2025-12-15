@@ -3,19 +3,17 @@ from __future__ import annotations
 import logging
 import xml.etree.ElementTree as ET
 
-from aiohttp import ClientTimeout, ClientResponseError
+from aiohttp import BasicAuth, ClientTimeout, ClientResponseError
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 _LOGGER = logging.getLogger(__name__)
 
-# timeout più largo per dispositivi lenti
 _TIMEOUT = ClientTimeout(total=30)
 
 
-def _get_auth(username: str | None, password: str | None):
+def _auth(username: str | None, password: str | None):
     if username and password:
-        from aiohttp import BasicAuth
-
         return BasicAuth(username, password)
     return None
 
@@ -26,36 +24,24 @@ async def async_fetch_element_statuses(
     username: str | None,
     password: str | None,
 ) -> ET.Element:
-    """
-    Scarica e parse l'XML principale:
-    /api/element_xml_statuses.xml
-    """
-    url = f"{base_url}/api/element_xml_statuses.xml"
-    auth = _get_auth(username, password)
-
-    session = hass.helpers.aiohttp_client.async_get_clientsession(hass)
-
-    _LOGGER.debug("Domologica GET %s", url)
+    url = f"{base_url.rstrip('/')}/api/element_xml_statuses.xml"
+    session = async_get_clientsession(hass)
+    auth = _auth(username, password)
 
     try:
         async with session.get(url, auth=auth, timeout=_TIMEOUT) as resp:
-            _LOGGER.debug(
-                "Domologica response status=%s for %s", resp.status, url
-            )
+            _LOGGER.warning("Domologica GET %s -> HTTP %s", url, resp.status)
             resp.raise_for_status()
             text = await resp.text()
             return ET.fromstring(text)
 
     except ClientResponseError as err:
-        _LOGGER.error(
-            "Domologica HTTP error %s on %s", err.status, url
-        )
+        # Questo log ti dice *esattamente* se è 401/403/404 ecc.
+        _LOGGER.error("Domologica HTTP error %s on %s", err.status, url)
         raise
 
     except Exception as err:
-        _LOGGER.error(
-            "Domologica connection error on %s: %s", url, err
-        )
+        _LOGGER.error("Domologica connection error on %s: %s", url, err)
         raise
 
 
@@ -67,23 +53,12 @@ async def async_command(
     username: str | None,
     password: str | None,
 ) -> None:
-    """
-    Comando generico GET:
-    /elements/{id}.xml?action=...
-    """
-    url = f"{base_url}/elements/{element_id}.xml?action={action}"
-    auth = _get_auth(username, password)
-
-    session = hass.helpers.aiohttp_client.async_get_clientsession(hass)
-
-    _LOGGER.debug("Domologica COMMAND %s", url)
+    url = f"{base_url.rstrip('/')}/elements/{element_id}.xml?action={action}"
+    session = async_get_clientsession(hass)
+    auth = _auth(username, password)
 
     async with session.get(url, auth=auth, timeout=_TIMEOUT) as resp:
-        _LOGGER.debug(
-            "Domologica command response status=%s for %s",
-            resp.status,
-            url,
-        )
+        _LOGGER.warning("Domologica CMD %s -> HTTP %s", url, resp.status)
         resp.raise_for_status()
 
 
@@ -95,34 +70,18 @@ async def async_set_dimmer(
     username: str | None,
     password: str | None,
 ) -> None:
-    """
-    Imposta il dimmer via POST:
-    action=setdimmer
-    arguments[0][value]=X
-    arguments[0][type]=int
-    """
-    url = f"{base_url}/elements/{element_id}.xml?action=setdimmer"
-    auth = _get_auth(username, password)
+    # POST autenticata: action=setdimmer + form fields arguments[0][...]
+    url = f"{base_url.rstrip('/')}/elements/{element_id}.xml?action=setdimmer"
+    session = async_get_clientsession(hass)
+    auth = _auth(username, password)
 
     data = {
         "arguments[0][value]": str(int(value)),
         "arguments[0][type]": "int",
     }
 
-    session = hass.helpers.aiohttp_client.async_get_clientsession(hass)
-
-    _LOGGER.debug(
-        "Domologica DIMMER POST %s value=%s", url, value
-    )
-
-    async with session.post(
-        url, data=data, auth=auth, timeout=_TIMEOUT
-    ) as resp:
-        _LOGGER.debug(
-            "Domologica dimmer response status=%s for %s",
-            resp.status,
-            url,
-        )
+    async with session.post(url, data=data, auth=auth, timeout=_TIMEOUT) as resp:
+        _LOGGER.warning("Domologica DIMMER %s -> HTTP %s", url, resp.status)
         resp.raise_for_status()
 
 
@@ -132,13 +91,8 @@ async def async_test_connection(
     username: str | None,
     password: str | None,
 ) -> bool:
-    """
-    Usato dal config_flow per testare la connessione
-    """
     try:
-        await async_fetch_element_statuses(
-            hass, base_url, username, password
-        )
+        await async_fetch_element_statuses(hass, base_url, username, password)
         return True
     except Exception:
         return False
@@ -175,8 +129,7 @@ def normalize_entity_name(
     element_name: str | None = None,
     status_id: str | None = None,
 ) -> str:
+    base = element_name or f"Element {element_id}"
     if status_id:
-        return f"Element {element_id} {status_id}"
-    if element_name:
-        return element_name
-    return f"Element {element_id}"
+        return f"{base} {status_id}".replace("  ", " ")
+    return base
