@@ -1,25 +1,23 @@
 from __future__ import annotations
 
+import time
+
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity import DeviceInfo
 
 from .const import DOMAIN
-from .utils import async_command, element_by_id, has_status, normalize_entity_name
+from .utils import async_command, normalize_entity_name
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    root = coordinator.data
+    data = coordinator.data or {}
 
     entities = []
-    for elem in root.findall("ElementStatus"):
-        eid = elem.findtext("ElementPath")
-        if not eid:
-            continue
-
-        if has_status(elem, "statuson") or has_status(elem, "statusoff"):
-            entities.append(DomologicaSwitch(coordinator, entry, str(eid)))
+    for eid, st in data.items():
+        if "statuson" in st or "statusoff" in st:
+            entities.append(DomologicaSwitch(coordinator, entry, eid))
 
     async_add_entities(entities)
 
@@ -29,6 +27,9 @@ class DomologicaSwitch(CoordinatorEntity, SwitchEntity):
         super().__init__(coordinator)
         self.entry = entry
         self._element_id = element_id
+
+        self._opt_until = 0.0
+        self._opt_is_on: bool | None = None
 
     @property
     def unique_id(self) -> str:
@@ -46,14 +47,18 @@ class DomologicaSwitch(CoordinatorEntity, SwitchEntity):
             manufacturer="Domologica",
         )
 
+    def _optimistic_active(self) -> bool:
+        return time.monotonic() < self._opt_until
+
     @property
     def is_on(self) -> bool | None:
-        e = element_by_id(self.coordinator.data, self._element_id)
-        if e is None:
-            return None
-        if has_status(e, "statuson"):
+        if self._optimistic_active() and self._opt_is_on is not None:
+            return self._opt_is_on
+
+        st = (self.coordinator.data or {}).get(self._element_id, {})
+        if "statuson" in st:
             return True
-        if has_status(e, "statusoff"):
+        if "statusoff" in st:
             return False
         return None
 
@@ -66,7 +71,10 @@ class DomologicaSwitch(CoordinatorEntity, SwitchEntity):
             self.coordinator.username,
             self.coordinator.password,
         )
-        await self.coordinator.async_request_refresh()
+        self._opt_is_on = True
+        self._opt_until = time.monotonic() + 2.5
+        self.async_write_ha_state()
+        await self.coordinator.async_schedule_refresh()
 
     async def async_turn_off(self, **kwargs):
         await async_command(
@@ -77,4 +85,7 @@ class DomologicaSwitch(CoordinatorEntity, SwitchEntity):
             self.coordinator.username,
             self.coordinator.password,
         )
-        await self.coordinator.async_request_refresh()
+        self._opt_is_on = False
+        self._opt_until = time.monotonic() + 2.5
+        self.async_write_ha_state()
+        await self.coordinator.async_schedule_refresh()

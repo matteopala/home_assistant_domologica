@@ -5,6 +5,7 @@ from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
@@ -15,12 +16,12 @@ from .const import (
     CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
 )
-from .utils import async_fetch_element_statuses
+from .utils import async_fetch_element_statuses, parse_statuses
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class DomologicaCoordinator(DataUpdateCoordinator):
+class DomologicaCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
         self.entry = entry
 
@@ -42,18 +43,28 @@ class DomologicaCoordinator(DataUpdateCoordinator):
 
         super().__init__(
             hass,
-            logger=_LOGGER,  # ✅ MAI None
+            logger=_LOGGER,
             name=DOMAIN,
             update_interval=timedelta(seconds=self.scan_interval),
         )
 
-    async def _async_update_data(self):
+        # Debounce refresh post-comando: evita refresh "a raffica"
+        self._debounced_refresh = Debouncer(
+            hass,
+            _LOGGER,
+            cooldown=0.5,
+            immediate=False,
+            function=self.async_request_refresh,
+        )
+
+    async def async_schedule_refresh(self) -> None:
+        await self._debounced_refresh.async_call()
+
+    async def _async_update_data(self) -> dict[str, dict[str, object]]:
         try:
-            return await async_fetch_element_statuses(
-                self.hass,
-                self.base_url,
-                self.username,
-                self.password,
+            root = await async_fetch_element_statuses(
+                self.hass, self.base_url, self.username, self.password
             )
+            return parse_statuses(root)
         except Exception as err:
             raise UpdateFailed(f"Domologica update failed: {err}") from err

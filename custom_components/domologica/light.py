@@ -1,37 +1,28 @@
 from __future__ import annotations
 
+import time
+
 from homeassistant.components.light import LightEntity, ColorMode
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity import DeviceInfo
 
 from .const import DOMAIN
-from .utils import (
-    async_command,
-    async_set_dimmer,
-    element_by_id,
-    has_status,
-    read_value,
-    normalize_entity_name,
-)
+from .utils import async_command, async_set_dimmer, normalize_entity_name
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    root = coordinator.data
+    data = coordinator.data or {}
 
     entities = []
-    for elem in root.findall("ElementStatus"):
-        eid = elem.findtext("ElementPath")
-        if not eid:
-            continue
-
-        # euristica: luce se ha ON/OFF o dimmer
+    for eid, st in data.items():
         if (
-            has_status(elem, "isswitchedon")
-            or has_status(elem, "isswitchedoff")
-            or has_status(elem, "getdimmer")
+            "isswitchedon" in st
+            or "isswitchedoff" in st
+            or "getdimmer" in st
+            or "pwmValue" in st
         ):
-            entities.append(DomologicaLight(coordinator, entry, str(eid)))
+            entities.append(DomologicaLight(coordinator, entry, eid))
 
     async_add_entities(entities)
 
@@ -44,6 +35,10 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
         super().__init__(coordinator)
         self.entry = entry
         self._element_id = element_id
+
+        self._opt_until = 0.0
+        self._opt_is_on: bool | None = None
+        self._opt_brightness: int | None = None
 
     @property
     def unique_id(self) -> str:
@@ -61,28 +56,32 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
             manufacturer="Domologica",
         )
 
+    def _optimistic_active(self) -> bool:
+        return time.monotonic() < self._opt_until
+
     @property
     def is_on(self) -> bool | None:
-        e = element_by_id(self.coordinator.data, self._element_id)
-        if e is None:
-            return None
-        if has_status(e, "isswitchedon"):
+        if self._optimistic_active() and self._opt_is_on is not None:
+            return self._opt_is_on
+
+        st = (self.coordinator.data or {}).get(self._element_id, {})
+        if "isswitchedon" in st:
             return True
-        if has_status(e, "isswitchedoff"):
+        if "isswitchedoff" in st:
             return False
         return None
 
     @property
     def brightness(self) -> int | None:
-        e = element_by_id(self.coordinator.data, self._element_id)
-        if e is None:
-            return None
-        dim = read_value(e, "getdimmer")
-        if dim is None:
+        if self._optimistic_active() and self._opt_brightness is not None:
+            return self._opt_brightness
+
+        st = (self.coordinator.data or {}).get(self._element_id, {})
+        dim = st.get("getdimmer")
+        if dim is None or dim is True:
             return None
         try:
-            # Domologica 0–100 → HA 0–255
-            return int(float(dim) * 255 / 100)
+            return int(float(str(dim)) * 255 / 100)
         except ValueError:
             return None
 
@@ -90,6 +89,7 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
         if "brightness" in kwargs:
             ha_brightness = int(kwargs["brightness"])
             domo_value = int(ha_brightness * 100 / 255)
+
             await async_set_dimmer(
                 self.hass,
                 self.coordinator.base_url,
@@ -98,6 +98,13 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
                 self.coordinator.username,
                 self.coordinator.password,
             )
+
+            # optimistic UI
+            self._opt_is_on = True
+            self._opt_brightness = ha_brightness
+            self._opt_until = time.monotonic() + 2.5
+            self.async_write_ha_state()
+
         else:
             await async_command(
                 self.hass,
@@ -107,7 +114,13 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
                 self.coordinator.username,
                 self.coordinator.password,
             )
-        await self.coordinator.async_request_refresh()
+
+            self._opt_is_on = True
+            self._opt_brightness = self.brightness  # keep if known
+            self._opt_until = time.monotonic() + 2.5
+            self.async_write_ha_state()
+
+        await self.coordinator.async_schedule_refresh()
 
     async def async_turn_off(self, **kwargs):
         await async_command(
@@ -118,4 +131,9 @@ class DomologicaLight(CoordinatorEntity, LightEntity):
             self.coordinator.username,
             self.coordinator.password,
         )
-        await self.coordinator.async_request_refresh()
+
+        self._opt_is_on = False
+        self._opt_until = time.monotonic() + 2.5
+        self.async_write_ha_state()
+
+        await self.coordinator.async_schedule_refresh()

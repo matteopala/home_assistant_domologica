@@ -1,26 +1,23 @@
 from __future__ import annotations
 
+import time
+
 from homeassistant.components.cover import CoverEntity, CoverDeviceClass
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity import DeviceInfo
 
 from .const import DOMAIN
-from .utils import async_command, element_by_id, has_status, normalize_entity_name
+from .utils import async_command, normalize_entity_name
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    root = coordinator.data
+    data = coordinator.data or {}
 
     entities = []
-    for elem in root.findall("ElementStatus"):
-        eid = elem.findtext("ElementPath")
-        if not eid:
-            continue
-
-        # euristica tapparella: up switched / down switched
-        if has_status(elem, "up switched") or has_status(elem, "down switched"):
-            entities.append(DomologicaCover(coordinator, entry, str(eid)))
+    for eid, st in data.items():
+        if "up switched" in st or "down switched" in st:
+            entities.append(DomologicaCover(coordinator, entry, eid))
 
     async_add_entities(entities)
 
@@ -32,6 +29,9 @@ class DomologicaCover(CoordinatorEntity, CoverEntity):
         super().__init__(coordinator)
         self.entry = entry
         self._element_id = element_id
+
+        self._opt_until = 0.0
+        self._opt_closed: bool | None = None
 
     @property
     def unique_id(self) -> str:
@@ -49,17 +49,18 @@ class DomologicaCover(CoordinatorEntity, CoverEntity):
             manufacturer="Domologica",
         )
 
+    def _optimistic_active(self) -> bool:
+        return time.monotonic() < self._opt_until
+
     @property
     def is_closed(self) -> bool | None:
-        e = element_by_id(self.coordinator.data, self._element_id)
-        if e is None:
-            return None
+        if self._optimistic_active() and self._opt_closed is not None:
+            return self._opt_closed
 
-        # Nota: qui stiamo deducendo lo stato dalla presenza degli status.
-        # Se sono "eventi momentanei", questo potrebbe non riflettere la posizione reale.
-        if has_status(e, "down switched"):
+        st = (self.coordinator.data or {}).get(self._element_id, {})
+        if "down switched" in st:
             return True
-        if has_status(e, "up switched"):
+        if "up switched" in st:
             return False
         return None
 
@@ -72,7 +73,10 @@ class DomologicaCover(CoordinatorEntity, CoverEntity):
             self.coordinator.username,
             self.coordinator.password,
         )
-        await self.coordinator.async_request_refresh()
+        self._opt_closed = False
+        self._opt_until = time.monotonic() + 2.5
+        self.async_write_ha_state()
+        await self.coordinator.async_schedule_refresh()
 
     async def async_close_cover(self, **kwargs):
         await async_command(
@@ -83,4 +87,7 @@ class DomologicaCover(CoordinatorEntity, CoverEntity):
             self.coordinator.username,
             self.coordinator.password,
         )
-        await self.coordinator.async_request_refresh()
+        self._opt_closed = True
+        self._opt_until = time.monotonic() + 2.5
+        self.async_write_ha_state()
+        await self.coordinator.async_schedule_refresh()

@@ -4,28 +4,20 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity import Entity, DeviceInfo
 
 from .const import DOMAIN
-from .utils import (
-    element_by_id,
-    list_status_ids_with_value,
-    read_value,
-    normalize_entity_name,
-)
+from .utils import normalize_entity_name
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    root = coordinator.data
+    data = coordinator.data or {}
 
     entities = []
-    for elem in root.findall("ElementStatus"):
-        eid = elem.findtext("ElementPath")
-        if not eid:
-            continue
-
-        for sid in list_status_ids_with_value(elem):
-            entities.append(
-                DomologicaSensor(coordinator, entry, str(eid), sid)
-            )
+    for eid, st in data.items():
+        for sid, val in st.items():
+            # sensori = solo status con value (noi salviamo True per flag)
+            if val is True:
+                continue
+            entities.append(DomologicaSensor(coordinator, entry, eid, sid))
 
     async_add_entities(entities)
 
@@ -56,7 +48,8 @@ class DomologicaSensor(CoordinatorEntity, Entity):
 
     @property
     def state(self):
-        e = element_by_id(self.coordinator.data, self._element_id)
-        if e is None:
+        st = (self.coordinator.data or {}).get(self._element_id, {})
+        val = st.get(self._status_id)
+        if val is True:
             return None
-        return read_value(e, self._status_id)
+        return val
