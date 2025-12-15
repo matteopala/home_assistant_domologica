@@ -90,7 +90,8 @@ class DomologicaCover(CoordinatorEntity, CoverEntity):
         self._opt_until = time.monotonic() + 2.5
         self.async_write_ha_state()
 
-        await self.coordinator.async_schedule_refresh_turbo()
+        # ✅ NON BLOCCANTE
+        self.coordinator.schedule_refresh_turbo()
 
     async def async_close_cover(self, **kwargs):
         await async_command(
@@ -112,4 +113,5 @@ class DomologicaCover(CoordinatorEntity, CoverEntity):
         self._opt_until = time.monotonic() + 2.5
         self.async_write_ha_state()
 
-        await self.coordinator.async_schedule_refresh_turbo()
+        # ✅ NON BLOCCANTE
+        self.coordinator.schedule_refresh_turbo()

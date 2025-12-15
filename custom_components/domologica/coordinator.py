@@ -27,7 +27,6 @@ _LOGGER = logging.getLogger(__name__)
 class DomologicaCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
         self.entry = entry
-
         data = entry.data or {}
         opts = entry.options or {}
 
@@ -55,35 +54,49 @@ class DomologicaCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]])
             update_interval=timedelta(seconds=self.scan_interval),
         )
 
+        # Debounce un po’ più largo: evita refresh inutili su toggle rapidi
         self._debounced_refresh = Debouncer(
             hass,
             _LOGGER,
-            cooldown=0.5,
+            cooldown=1.0,
             immediate=False,
             function=self.async_request_refresh,
         )
 
         self._turbo_task: asyncio.Task | None = None
 
-    async def async_schedule_refresh(self) -> None:
-        await self._debounced_refresh.async_call()
+    # -------------------------
+    # Refresh: NON BLOCCANTI
+    # -------------------------
 
-    async def async_schedule_refresh_turbo(self) -> None:
-        await self.async_schedule_refresh()
+    def schedule_refresh(self) -> None:
+        """Chiede un refresh senza bloccare la service call."""
+        self.hass.async_create_task(self._debounced_refresh.async_call())
+
+    def schedule_refresh_turbo(self) -> None:
+        """
+        Micro-turbo: refresh debounced subito + extra refresh a +1s e +3s.
+        Non blocca mai il comando.
+        """
+        self.schedule_refresh()
 
         if self._turbo_task and not self._turbo_task.done():
             self._turbo_task.cancel()
 
-        self._turbo_task = asyncio.create_task(self._turbo_worker())
+        self._turbo_task = self.hass.async_create_task(self._turbo_worker())
 
     async def _turbo_worker(self) -> None:
         try:
             await asyncio.sleep(1.0)
-            await self.async_schedule_refresh()
-            await asyncio.sleep(2.0)
-            await self.async_schedule_refresh()
+            await self._debounced_refresh.async_call()
+            await asyncio.sleep(2.0)  # totale ~3s dal comando
+            await self._debounced_refresh.async_call()
         except asyncio.CancelledError:
             return
+
+    # -------------------------
+    # Optimistic cache update
+    # -------------------------
 
     def apply_optimistic(
         self,
@@ -110,7 +123,6 @@ class DomologicaCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]])
             )
             data = parse_statuses(root)
 
-            # Se enabled non è impostato (prima installazione), abilita tutto.
             if not self.enabled_elements:
                 self.enabled_elements = set(data.keys())
 
