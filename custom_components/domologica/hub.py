@@ -7,14 +7,14 @@ _LOGGER = logging.getLogger(__name__)
 
 class DomologicaHub:
     def __init__(self, host, username, password):
-        self.host = host
-        # Crea l'autenticazione Basic una volta sola
+        # Pulisce l'host: rimuove http:// e slash finali
+        self.host = host.replace("http://", "").replace("https://", "").strip("/")
         self.auth = aiohttp.BasicAuth(username, password)
         self.devices = {}
 
     async def async_discover(self):
-        """Scansiona gli elementi usando le credenziali fornite."""
-        _LOGGER.info("Connessione a %s con utente %s...", self.host, self.auth.login)
+        """Scansione iniziale degli ID 1-300."""
+        _LOGGER.info("Connessione a http://%s...", self.host)
         async with aiohttp.ClientSession() as session:
             for i in range(1, 301):
                 url = f"http://{self.host}/api/elements/{i}.xml"
@@ -33,13 +33,13 @@ class DomologicaHub:
         return self.devices
 
     async def get_all_statuses(self):
-        """Scarica lo stato globale usando l'autenticazione."""
+        """Scarica lo stato globale."""
         url = f"http://{self.host}/api/element_xml_statuses.xml"
         async with aiohttp.ClientSession() as session:
             try:
                 async with session.get(url, auth=self.auth, timeout=10) as resp:
                     if resp.status != 200:
-                        _LOGGER.error("Errore autenticazione o connessione: %s", resp.status)
+                        _LOGGER.error("Errore host %s: status %s", self.host, resp.status)
                         return {}
                     
                     text = await resp.text()
@@ -59,11 +59,10 @@ class DomologicaHub:
                         all_data[eid] = device_states
                     return all_data
             except Exception as e:
-                _LOGGER.error("Eccezione durante il polling: %s", e)
+                _LOGGER.error("Eccezione durante il polling su %s: %s", self.host, e)
                 return {}
 
     async def send_command(self, device_id, action, value=None):
-        """Invia comandi autenticati."""
         url = f"http://{self.host}/elements/{device_id}.xml?action={action}"
         if value is not None: url += f"&value={value}"
         async with aiohttp.ClientSession() as session:
@@ -71,5 +70,5 @@ class DomologicaHub:
                 async with session.get(url, auth=self.auth, timeout=5) as resp:
                     return resp.status == 200
             except Exception as e:
-                _LOGGER.error("Errore comando %s su ID %s: %s", action, device_id, e)
+                _LOGGER.error("Errore comando su %s: %s", self.host, e)
                 return False

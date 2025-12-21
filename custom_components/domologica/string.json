@@ -1,0 +1,25 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Domologica Setup",
+        "data": {
+          "host": "IP Address or Hostname",
+          "username": "Username",
+          "password": "Password",
+          "scan_interval": "Polling Interval (seconds)"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Domologica Options",
+        "data": {
+          "scan_interval": "Polling Interval (seconds)"
+        }
+      }
+    }
+  }
+}
